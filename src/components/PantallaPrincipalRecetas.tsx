@@ -44,7 +44,8 @@ interface Receta {
   fecha_creacion: string; 
   imagen_url?: string;
   dificultad: number;
-  valoracion_media: number; // Columna DECIMAL(3,2) real de tu SQL
+  valoracion_media: number; 
+  num_valoraciones?: number; // Guardará el conteo real de votos
   categoria_id?: string;
   secreto_familiar?: string;
   ingredientes_lista?: string; 
@@ -65,7 +66,7 @@ export default function PantallaPrincipalRecetas() {
   // --- ESTADOS DE DATOS REALES ---
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]); // Notas de la familia
+  const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]); 
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'supabase' | 'local'>('supabase');
@@ -90,7 +91,25 @@ export default function PantallaPrincipalRecetas() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Calcular tiempo relativo ("Hace 2 días")
+  const fallbackCategorias: Categoria[] = [
+    { id: 'cat-default-1', nombre: 'Pasta y Arroz' },
+    { id: 'cat-default-2', nombre: 'Guisos y Estofados' }
+  ];
+
+  const fallbackRecetas: Receta[] = [
+    {
+      id: 'demo-1',
+      titulo: 'Croquetas de Jamón de la Abuela',
+      ingredientes_lista: '• 200g de Jamón Ibérico picado\n• 1 Litro de Leche entera',
+      instrucciones: 'Derretir la mantequilla en una sartén. Dorar la harina para la roux. Verter la leche entera caliente despacio sin dejar de batir.',
+      tiempo_preparacion: 45,
+      dificultad: 4,
+      valoracion_media: 4.5,
+      num_valoraciones: 3,
+      fecha_creacion: new Date().toISOString()
+    }
+  ];
+
   const obtenerTiempoRelativo = (fechaStr?: string): string => {
     if (!fechaStr) return 'Reciente';
     try {
@@ -127,45 +146,49 @@ export default function PantallaPrincipalRecetas() {
     return `${horas}h ${minutos}m`;
   };
 
-  // --- ESTRELLAS ESTÁNDAR (DIFICULTAD) ---
-  const renderEstrellasDificultad = (dificultad: number) => {
+  // --- 🔴 REVOLUCIÓN DE CÍRCULOS DE DIFICULTAD DINÁMICOS POR TONOS ---
+  const renderCirculosDificultad = (dificultad: number) => {
+    let colorClass = 'bg-emerald-500'; // Nivel 1 - Muy fácil
+    if (dificultad === 2) colorClass = 'bg-lime-500'; // Nivel 2 - Fácil
+    if (dificultad === 3) colorClass = 'bg-amber-500'; // Nivel 3 - Medio
+    if (dificultad === 4) colorClass = 'bg-orange-500'; // Nivel 4 - Algo difícil
+    if (dificultad === 5) colorClass = 'bg-red-500'; // Nivel 5 - Difícil
+
     return (
-      <div className="flex items-center gap-0.5 shrink-0">
-        {[1, 2, 3, 4, 5].map((num) => (
-          <Star 
-            key={num} 
-            className={`w-2.5 h-2.5 ${num <= dificultad ? 'fill-amber-600 text-amber-600' : 'text-stone-200'}`} 
-          />
+      <div className="flex items-center gap-1 shrink-0 bg-stone-100/80 px-2 py-0.5 rounded-full border border-stone-200/40">
+        <span className="text-[7px] text-stone-500 font-sans font-black uppercase tracking-wider mr-0.5">Dif:</span>
+        {Array.from({ length: dificultad }).map((_, i) => (
+          <span key={i} className={`w-1.5 h-1.5 rounded-full ${colorClass} animate-pulse`} />
         ))}
       </div>
     );
   };
 
-  // --- 🔥 RENDERIZADOR AVANZADO DE VALORACIÓN MEDIA (ESTRELLAS FRACCIONADAS) ---
-  const renderEstrellasValoracion = (rating: number) => {
+  // --- ESTRELLAS DE VALORACIÓN MEDIA CON EL TOTAL ENTRE PARÉNTESIS ---
+  const renderEstrellasValoracion = (rating: number, count: number = 0) => {
     const notaLimpia = rating ? Number(rating) : 5.0;
     return (
       <div className="flex items-center gap-0.5 shrink-0">
         {[1, 2, 3, 4, 5].map((num) => {
-          // Calculamos el porcentaje de relleno de cada estrella individual
           const fillPercent = Math.max(0, Math.min(100, (notaLimpia - (num - 1)) * 100));
           return (
             <div key={num} className="relative w-3 h-3 shrink-0">
-              {/* Estrella gris de fondo */}
               <Star className="w-3 h-3 text-stone-200 absolute top-0 left-0" />
-              {/* Capa recortada superior dorada */}
               <div className="absolute top-0 left-0 h-full overflow-hidden" style={{ width: `${fillPercent}%` }}>
                 <Star className="w-3 h-3 fill-amber-500 text-amber-500 absolute top-0 left-0 max-w-none" style={{ width: '12px', height: '12px' }} />
               </div>
             </div>
           );
         })}
-        <span className="text-[9px] font-mono font-black text-amber-600 ml-1 bg-amber-50 px-1 rounded border border-amber-100">{notaLimpia.toFixed(1)}</span>
+        <span className="text-[9px] font-mono font-black text-amber-600 ml-1 bg-amber-50 px-1 rounded border border-amber-100 flex items-center gap-0.5">
+          <span>{notaLimpia.toFixed(1)}</span>
+          <span className="text-stone-400 font-sans font-bold text-[8px]">({count})</span>
+        </span>
       </div>
     );
   };
 
-  // --- LEER DE LA BASE DE DATOS REAL ---
+  // --- LEER DE LA BASE DE DATOS REAL CON RECUENTO DE COMENTARIOS ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
@@ -183,7 +206,8 @@ export default function PantallaPrincipalRecetas() {
             unidad_medida,
             es_opcional,
             ingredientes ( nombre )
-          )
+          ),
+          comentarios_valoraciones ( id )
         `)
         .order('fecha_creacion', { ascending: false });
 
@@ -211,7 +235,8 @@ export default function PantallaPrincipalRecetas() {
 
           return {
             ...r,
-            receta_ingredientes: ingRelacionales
+            receta_ingredientes: ingRelacionales,
+            num_valoraciones: r.comentarios_valoraciones?.length || 0 // Mapeamos la longitud de comentarios
           };
         });
         setRecetas(mapeadas);
@@ -221,14 +246,13 @@ export default function PantallaPrincipalRecetas() {
       console.error('Error al conectar con Supabase:', err.message);
       setErrorMsg(err.message);
       setDataSource('local');
-      setRecetas([]);
-      setCategorias([]);
+      setRecetas(fallbackRecetas);
+      setCategorias(fallbackCategorias);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- 💬 CARGAR COMENTARIOS Y ANÉCDOTAS DE LA RECETA DESDE SUPABASE ---
   const fetchComentariosReceta = async (recetaId: string) => {
     try {
       const { data, error } = await supabase
@@ -243,7 +267,7 @@ export default function PantallaPrincipalRecetas() {
       if (error) throw error;
       setComentarios(data || []);
     } catch (err: any) {
-      console.error('Error al cargar anécdotas de familia:', err.message);
+      console.error('Error al cargar anécdotas:', err.message);
       setComentarios([]);
     }
   };
@@ -306,7 +330,6 @@ export default function PantallaPrincipalRecetas() {
     }
     setSelectedReceta(finalReceta);
     setCurrentScreen('detail');
-    // Lanzamos la descarga de los comentarios de esta receta concreta
     fetchComentariosReceta(String(receta.id));
   };
 
@@ -358,6 +381,7 @@ export default function PantallaPrincipalRecetas() {
   return (
     <div className="w-full max-w-md mx-auto p-4 space-y-4">
       
+      {/* Estado */}
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600 font-bold">
         <Database className="w-4 h-4 shrink-0" />
         <span>Base de Datos: {dataSource === 'supabase' ? 'Tablas Supabase Enlazadas' : 'Desconectado'}</span>
@@ -370,7 +394,7 @@ export default function PantallaPrincipalRecetas() {
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL SIMULADO */}
+      {/* CONTENEDOR MÓVIL */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
@@ -432,8 +456,8 @@ export default function PantallaPrincipalRecetas() {
                           <div>
                             <div className="flex justify-between items-center gap-2 w-full">
                               <h3 className="font-extrabold text-stone-900 text-xs tracking-tight flex-1 truncate">{receta.titulo}</h3>
-                              {/* Valoración Media Fraccionada en Tarjeta */}
-                              {renderEstrellasValoracion(receta.valoracion_media)}
+                              {/* Valoración Media con contador de votos */}
+                              {renderEstrellasValoracion(receta.valoracion_media, receta.num_valoraciones)}
                             </div>
                             <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 leading-relaxed">
                               {receta.instrucciones.replace(/\[INGREDIENTES\][\s\S]*?\[PASOS\]\n/, '')}
@@ -445,6 +469,10 @@ export default function PantallaPrincipalRecetas() {
                               <Clock className="w-3 h-3 text-amber-500" />
                               {formatearMinutos(receta.tiempo_preparacion)}
                             </span>
+                            
+                            {/* 🔥 Círculos de dificultad por colores integrados en la vista previa */}
+                            {renderCirculosDificultad(receta.dificultad)}
+
                             <span className="flex items-center gap-1 font-sans text-stone-400 font-medium">
                               <Calendar className="w-3 h-3 text-stone-400" />
                               {obtenerTiempoRelativo(receta.fecha_creacion)}
@@ -479,7 +507,7 @@ export default function PantallaPrincipalRecetas() {
               </div>
             )}
 
-            {/* --- VISTA 2: PANTALLA DETALLE COMPLETA --- */}
+            {/* --- VISTA 2: PANTALLA DETALLE --- */}
             {currentScreen === 'detail' && selectedReceta && (
               <div className="absolute inset-0 flex flex-col bg-stone-50 w-full">
                 <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0">
@@ -503,13 +531,14 @@ export default function PantallaPrincipalRecetas() {
                             <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}
                           </span>
                           <div className="flex items-center gap-1 text-[9px] font-bold text-stone-700">
-                            <span className="text-stone-400 text-[7px] tracking-wide uppercase">Nota Media:</span>
-                            {renderEstrellasValoracion(selectedReceta.valoracion_media)}
+                            <span className="text-stone-400 text-[7px] tracking-wide uppercase">Valoración Media:</span>
+                            {renderEstrellasValoracion(selectedReceta.valoracion_media, selectedReceta.num_valoraciones)}
                           </div>
                         </div>
-                        <div className="flex items-center justify-end gap-1 text-[9px] font-bold text-stone-700 w-full">
-                          <span className="text-stone-400 text-[7px] tracking-wide uppercase">Dificultad:</span>
-                          {renderEstrellasDificultad(selectedReceta.dificultad)}
+                        <div className="flex items-center justify-between gap-1 text-[9px] font-bold text-stone-700 w-full border-t border-stone-50 pt-1.5">
+                          <span className="text-stone-400 text-[7px] tracking-wide uppercase">Complejidad:</span>
+                          {/* Círculos aplicados también al detalle */}
+                          {renderCirculosDificultad(selectedReceta.dificultad)}
                         </div>
                       </div>
                     </div>
@@ -562,7 +591,7 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
-                  {/* 💬 SECCIÓN NUEVA: ANÉCDOTAS Y NOTAS DE LA FAMILIA (ABAJO DEL TODO) */}
+                  {/* ANÉCDOTAS DE LA FAMILIA */}
                   <div className="space-y-1.5 w-full shrink-0 pt-2 pb-6">
                     <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">
                       💬 Anécdotas y Notas de la Familia
@@ -577,7 +606,6 @@ export default function PantallaPrincipalRecetas() {
                                 {com.familiares?.nombre || 'Familiar'}
                               </span>
                               <div className="flex items-center gap-1 text-[8px] font-mono text-stone-400">
-                                {renderEstrellasDificultad(com.puntuacion)}
                                 <span>({obtenerTiempoRelativo(com.fecha_creacion)})</span>
                               </div>
                             </div>
@@ -588,7 +616,7 @@ export default function PantallaPrincipalRecetas() {
                         ))
                       ) : (
                         <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">
-                          Nadie ha dejado ninguna anotación sobre este plato todavía. ¡Sé el primero!
+                          Nadie ha dejado ninguna anotación sobre este plato todavía.
                         </div>
                       )}
                     </div>
