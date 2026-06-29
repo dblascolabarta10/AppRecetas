@@ -14,7 +14,8 @@ import {
    X,
    Star,
    Layers,
-   Utensils
+   Utensils,
+   Calendar
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -25,18 +26,17 @@ interface IngredienteRelacion {
 }
 
 interface Receta {
-  id: string | number;
+  id: string;
   titulo: string;
   instrucciones: string;
   tiempo_preparacion: number;
-  fecha_creacion?: string;
+  fecha_creacion: string; // Columna real TIMESTAMP de Supabase
   imagen_url?: string;
   dificultad: number;
   categoria_id?: string;
   secreto_familiar?: string;
   ingredientes_lista?: string; 
   receta_ingredientes?: IngredienteRelacion[];
-  categorias?: { nombre: string }; 
 }
 
 interface Categoria {
@@ -77,6 +77,35 @@ export default function PantallaPrincipalRecetas() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
+  // --- FUNCIÓN CALCULAR TIEMPO RELATIVO (CERCANO Y HUMANO) ---
+  const obtenerTiempoRelativo = (fechaStr?: string): string => {
+    if (!fechaStr) return 'Reciente';
+    try {
+      const fechaCarga = new Date(fechaStr);
+      const ahora = new Date();
+      const diferenciaSms = ahora.getTime() - fechaCarga.getTime();
+      
+      const minutos = Math.floor(diferenciaSms / (1000 * 60));
+      const horas = Math.floor(diferenciaSms / (1000 * 60 * 60));
+      const dias = Math.floor(diferenciaSms / (1000 * 60 * 60 * 24));
+
+      if (minutos < 60) {
+        return minutos <= 5 ? '¡Justo ahora!' : `Hace ${minutos} min`;
+      } else if (horas < 24) {
+        return `Hace ${horas} ${horas === 1 ? 'hora' : 'horas'}`;
+      } else if (dias === 1) {
+        return 'Añadida ayer';
+      } else if (dias < 30) {
+        return `Añadida hace ${dias} días`;
+      } else {
+        // Fallback por si la receta es muy antigua
+        return fechaCarga.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    } catch {
+      return 'Reciente';
+    }
+  };
+
   const formatearMinutos = (totalMinutos: number): string => {
     if (totalMinutos <= 0) return '0 min';
     const horas = Math.floor(totalMinutos / 60);
@@ -99,17 +128,15 @@ export default function PantallaPrincipalRecetas() {
     );
   };
 
-  // --- LEER DE TU BASE DE DATOS REAL ---
+  // --- LEER DE LA BASE DE DATOS REAL ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Cargar tus categorías estrictas de Supabase
       const { data: dbCats, error: errCats } = await supabase.from('categorias').select('id, nombre');
       if (errCats) throw errCats;
       setCategorias(dbCats || []);
 
-      // 2. Cargar tus recetas estrictas de Supabase junto a la intermedia de ingredientes
       const { data: recs, error: errRecs } = await supabase
         .from('recetas')
         .select(`
@@ -152,7 +179,7 @@ export default function PantallaPrincipalRecetas() {
         setDataSource('supabase');
       }
     } catch (err: any) {
-      console.error('Error al conectar con las tablas reales:', err.message);
+      console.error('Error al conectar con Supabase:', err.message);
       setErrorMsg(err.message);
       setDataSource('local');
       setRecetas([]);
@@ -164,7 +191,6 @@ export default function PantallaPrincipalRecetas() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Mapeador dinámico reactivo para obtener los nombres según el UUID de la base de datos
   const mapaCategorias = useMemo(() => {
     const obj: Record<string, string> = {};
     categorias.forEach(c => { obj[c.id] = c.nombre; });
@@ -187,7 +213,6 @@ export default function PantallaPrincipalRecetas() {
     setOnlyWithSecrets(false);
   };
 
-  // --- MOTOR DE FILTRADO ADITIVO STRICT POR ID ---
   const recetasFiltradas = useMemo(() => {
     return recetas.filter(receta => {
       const coincideBusqueda = receta.titulo.toLowerCase().includes(searchQuery.toLowerCase());
@@ -255,7 +280,7 @@ export default function PantallaPrincipalRecetas() {
         setSuccessToast('¡Guardado con éxito!');
         await fetchData();
       } else {
-        alert('Modo local no disponible sin tablas en la nube.');
+        alert('Modo local deshabilitado.');
       }
       setTituloForm('');
       setInstruccionesForm('');
@@ -272,7 +297,7 @@ export default function PantallaPrincipalRecetas() {
   return (
     <div className="w-full max-w-md mx-auto p-4 space-y-4">
       
-      {/* Indicador de conexión */}
+      {/* Conexión */}
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600 font-bold">
         <Database className="w-4 h-4 shrink-0" />
         <span>Base de Datos: {dataSource === 'supabase' ? 'Tablas Supabase Enlazadas' : 'Desconectado'}</span>
@@ -285,7 +310,7 @@ export default function PantallaPrincipalRecetas() {
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL SIMULADO */}
+      {/* CONTENEDOR MÓVIL */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
@@ -308,7 +333,6 @@ export default function PantallaPrincipalRecetas() {
                       <h1 className="text-md font-black text-gray-900 tracking-tight">Cocina Familiar</h1>
                     </div>
                   </div>
-
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
                     <input
@@ -321,19 +345,18 @@ export default function PantallaPrincipalRecetas() {
                   </div>
                 </header>
 
-                {/* CONTENEDOR DE TARJETAS FLUIDO */}
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 flex flex-col items-stretch w-full pb-20">
                   {loading ? (
                     <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">
                       <RefreshCw className="w-5 h-5 animate-spin text-amber-600 mb-2" />
-                      <span className="text-[10px]">Cargando recetario real...</span>
+                      <span className="text-[10px]">Cargando recetario...</span>
                     </div>
                   ) : recetasFiltradas.length > 0 ? (
                     recetasFiltradas.map((receta) => (
                       <div
                         key={receta.id}
                         onClick={() => handleVerDetalle(receta)}
-                        className="w-full bg-white border border-gray-200 rounded-2xl shadow-xs cursor-pointer overflow-hidden flex flex-col text-left shrink-0"
+                        className="w-full bg-white border border-gray-200 rounded-2xl shadow-xs cursor-pointer overflow-hidden flex flex-col text-left shrink-0 animate-fade-in"
                       >
                         <div className="w-full h-40 bg-stone-200 relative">
                           <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-full object-cover"/>
@@ -356,26 +379,28 @@ export default function PantallaPrincipalRecetas() {
                             </p>
                           </div>
 
+                          {/* PIE DE TARJETA CON EL TIEMPO RELATIVO INTEGRADÓ */}
                           <div className="flex items-center justify-between text-[9px] text-stone-400 font-mono border-t border-stone-100 mt-2.5 pt-2">
                             <span className="flex items-center gap-1 text-stone-700 font-bold">
                               <Clock className="w-3 h-3 text-amber-500" />
                               {formatearMinutos(receta.tiempo_preparacion)}
                             </span>
-                            {receta.secreto_familiar && (
-                              <span className="bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded text-[8px] font-sans font-extrabold uppercase tracking-wider">🤫 Secreto</span>
-                            )}
+                            <span className="flex items-center gap-1 font-sans text-stone-400 font-medium">
+                              <Calendar className="w-3 h-3 text-stone-400" />
+                              {obtenerTiempoRelativo(receta.fecha_creacion)}
+                            </span>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
                     <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">
-                      No hay recetas en tu base de datos.
+                      No hay recetas reales en tu base de datos.
                     </div>
                   )}
                 </div>
 
-                {/* 🎛️ BOTÓN DE FILTRADO (ABAJO A LA IZQUIERDA) */}
+                {/* BOTÓN FILTRAR */}
                 <button 
                   onClick={() => setIsFilterPanelOpen(true)}
                   className={`absolute bottom-5 left-5 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer z-10 ${
@@ -387,14 +412,14 @@ export default function PantallaPrincipalRecetas() {
                   <SlidersHorizontal className="w-5 h-5 stroke-[2.5]" />
                 </button>
 
-                {/* ➕ BOTÓN FLOTANTE AÑADIR (ABAJO A LA DERECHA) */}
+                {/* BOTÓN AÑADIR */}
                 <button onClick={() => setCurrentScreen('create')} className="absolute bottom-5 right-5 w-11 h-11 bg-amber-600 hover:bg-amber-700 text-white rounded-full flex items-center justify-center shadow-lg z-10 cursor-pointer active:scale-95 transition-transform">
                   <Plus className="w-5.5 h-5.5 stroke-[2.5]" />
                 </button>
               </div>
             )}
 
-            {/* --- VISTA 2: PANTALLA DETALLE --- */}
+            {/* --- VISTA 2: PANTALLA DETALLE CON FECHA --- */}
             {currentScreen === 'detail' && selectedReceta && (
               <div className="absolute inset-0 flex flex-col bg-stone-50 w-full">
                 <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0">
@@ -406,13 +431,19 @@ export default function PantallaPrincipalRecetas() {
                   <div className="w-full bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
                     <img src={selectedReceta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={selectedReceta.titulo} className="w-full h-44 object-cover"/>
                     <div className="p-4 space-y-2">
-                      <h1 className="text-xs font-black text-stone-900 leading-tight">{selectedReceta.titulo}</h1>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded-full">
+                      <div className="flex justify-between items-start gap-2">
+                        <h1 className="text-xs font-black text-stone-900 leading-tight flex-1">{selectedReceta.titulo}</h1>
+                        {/* Fecha en el detalle */}
+                        <span className="text-[8px] font-mono font-bold bg-stone-100 border text-stone-500 px-2 py-0.5 rounded-md uppercase shrink-0">
+                          {obtenerTiempoRelativo(selectedReceta.fecha_creacion)}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 border-t border-stone-100 pt-2 mt-1">
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700">
                           <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}
                         </span>
-                        <div className="inline-flex items-center gap-1.5 bg-stone-100 px-2 py-0.5 rounded-full text-[9px] font-bold text-stone-700">
-                          <span>Dificultad:</span>
+                        <div className="inline-flex items-center gap-1.5 text-[9px] font-bold text-stone-700 border-l border-stone-200 pl-3">
+                          <span className="text-stone-400 text-[8px] tracking-wide uppercase">Dificultad:</span>
                           {renderEstrellas(selectedReceta.dificultad)}
                         </div>
                       </div>
@@ -446,7 +477,7 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
-                  {/* PASOS SEPARADOS */}
+                  {/* PASOS */}
                   <div className="space-y-1 w-full shrink-0">
                     <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboración Paso a Paso</span>
                     <div className="space-y-2.5 w-full">
@@ -475,7 +506,7 @@ export default function PantallaPrincipalRecetas() {
                 <form onSubmit={handleGuardarReceta} className="flex-1 overflow-y-auto p-4 space-y-3 text-left w-full flex flex-col items-stretch">
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Título *</label>
-                    <input type="text" required placeholder="Ej. Lasaña boloñesa" value={tituloForm} onChange={(e) => setTituloForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+                    <input type="text" required placeholder="Ej. Lasaña" value={tituloForm} onChange={(e) => setTituloForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 w-full">
@@ -501,17 +532,17 @@ export default function PantallaPrincipalRecetas() {
 
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Lista de Ingredientes *</label>
-                    <textarea rows={3} required placeholder="• 250g de pasta..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
+                    <textarea rows={3} required placeholder="• Ingredientes..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
                   </div>
 
                   <div className="space-y-1 w-full">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Instrucciones de Elaboración *</label>
-                    <textarea rows={4} required placeholder="Escribe los pasos separados por puntos o intros..." value={instruccionesForm} onChange={(e) => setInstruccionesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-2 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Instrucciones *</label>
+                    <textarea rows={4} required placeholder="Pasos..." value={instruccionesForm} onChange={(e) => setInstruccionesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-2 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
                   </div>
 
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">URL de la Imagen</label>
-                    <input type="url" placeholder="https://enlace-foto.com/imagen.jpg" value={urlImagenForm} onChange={(e) => setUrlImagenForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+                    <input type="url" placeholder="https://..." value={urlImagenForm} onChange={(e) => setUrlImagenForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
                   </div>
                 </form>
 
@@ -532,31 +563,20 @@ export default function PantallaPrincipalRecetas() {
                     <button onClick={() => setIsFilterPanelOpen(false)} className="p-1 bg-stone-100 rounded-full"><X className="w-4 h-4" /></button>
                   </div>
 
-                  {/* Categorías Reales de Supabase */}
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida (Desde DB)</label>
-                    {categorias.length > 0 ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        {categorias.map(cat => (
-                          <label key={cat.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-xl border border-stone-200/60 cursor-pointer text-[10px] truncate">
-                            <input 
-                              type="checkbox" 
-                              checked={selectedCategories.includes(String(cat.id))} 
-                              onChange={() => handleToggleCategory(String(cat.id))} 
-                              className="accent-amber-600 shrink-0"
-                            />
-                            <span className="truncate">{cat.nombre}</span>
-                          </label>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-[9px] text-stone-400 italic">No hay categorías guardadas en tu Supabase.</p>
-                    )}
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {categorias.map(cat => (
+                        <label key={cat.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-xl border border-stone-200/60 cursor-pointer text-[10px] truncate">
+                          <input type="checkbox" checked={selectedCategories.includes(String(cat.id))} onChange={() => handleToggleCategory(String(cat.id))} className="accent-amber-600 shrink-0"/>
+                          <span className="truncate">{cat.nombre}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Dificultad */}
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad de preparación</label>
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad</label>
                     <div className="flex justify-between gap-1">
                       {[1, 2, 3, 4, 5].map(num => (
                         <label key={num} className={`flex-1 py-1.5 rounded-xl border flex flex-col items-center gap-0.5 cursor-pointer text-[10px] font-bold ${
@@ -569,7 +589,6 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
-                  {/* Duración de Tiempo Separada */}
                   <div className="space-y-3 w-full">
                     <div className="flex justify-between items-center">
                       <label className="text-[9px] font-bold uppercase text-stone-400">Duración Acotada</label>
@@ -579,27 +598,14 @@ export default function PantallaPrincipalRecetas() {
                     <div className="space-y-3 bg-stone-50 p-3 rounded-xl border border-stone-200 w-full box-border">
                       <div className="space-y-1 w-full">
                         <div className="flex justify-between text-[8px] text-stone-400 font-bold uppercase">Mínimo:</div>
-                        <input 
-                          type="range" min="0" max="180" step="5" value={minTime}
-                          onChange={(e) => setMinTime(Math.min(maxTime, Number(e.target.value)))}
-                          className="w-full accent-amber-600 cursor-pointer h-1 bg-stone-200 rounded-lg appearance-none block"
-                        />
+                        <input type="range" min="0" max="180" step="5" value={minTime} onChange={(e) => setMinTime(Math.min(maxTime, Number(e.target.value)))} className="w-full accent-amber-600 cursor-pointer h-1 bg-stone-200 rounded-lg appearance-none block" />
                       </div>
                       <div className="space-y-1 border-t border-stone-200/60 pt-2 w-full">
                         <div className="flex justify-between text-[8px] text-stone-400 font-bold uppercase">Máximo:</div>
-                        <input 
-                          type="range" min="0" max="180" step="5" value={maxTime}
-                          onChange={(e) => setMaxTime(Math.max(minTime, Number(e.target.value)))}
-                          className="w-full accent-amber-600 cursor-pointer h-1 bg-stone-200 rounded-lg appearance-none block"
-                        />
+                        <input type="range" min="0" max="180" step="5" value={maxTime} onChange={(e) => setMaxTime(Math.max(minTime, Number(e.target.value)))} className="w-full accent-amber-600 cursor-pointer h-1 bg-stone-200 rounded-lg appearance-none block" />
                       </div>
                     </div>
                   </div>
-
-                  <label className="flex items-center justify-between p-2.5 bg-purple-50/50 border border-purple-200/50 rounded-xl cursor-pointer mt-1">
-                    <span className="text-[10px] font-extrabold text-purple-900">🤫 Mostrar solo secretos</span>
-                    <input type="checkbox" checked={onlyWithSecrets} onChange={(e) => setOnlyWithSecrets(e.target.checked)} className="accent-purple-600 w-4 h-4" />
-                  </label>
 
                   <div className="flex gap-2 border-t border-stone-100 pt-3 mt-1">
                     <button onClick={() => setIsFilterPanelOpen(false)} className="flex-1 py-2 bg-amber-600 text-white text-[10px] font-bold uppercase rounded-xl text-center">Aplicar Filtros</button>
