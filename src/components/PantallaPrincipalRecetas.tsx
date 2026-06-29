@@ -66,14 +66,15 @@ export default function PantallaPrincipalRecetas() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Datos locales de contingencia por si Supabase está vacío o sin conexión
+  // Categorías Demo fijas por si Supabase no tiene registros
   const categoriasDemoFallback: Categoria[] = [
     { id: 'cat-default-1', nombre: 'Pasta y Arroz' },
-    { id: 'cat-default-2', font-bold nombre: 'Guisos y Estofados' },
+    { id: 'cat-default-2', nombre: 'Guisos y Estofados' },
     { id: 'cat-default-3', nombre: 'Carnes y Pescados' },
     { id: 'cat-default-4', nombre: 'Postres y Dulces' }
   ];
 
+  // Recetas de prueba mapeadas con las categorías del fallback
   const recetasDemoFallback: Receta[] = [
     {
       id: 'demo-1',
@@ -84,14 +85,14 @@ export default function PantallaPrincipalRecetas() {
       secreto_familiar: 'Añadir un chorrito de caldo de cocido concentrado a la leche.',
       fecha_creacion: new Date().toISOString(),
       imagen_url: 'https://images.unsplash.com/photo-1562967914-608f82629710?w=600&auto=format&fit=crop&q=60',
-      categoria_id: 'cat-default-1',
+      categoria_id: 'cat-default-2',
       is_local: true
     },
     {
       id: 'demo-2',
       titulo: 'Guisado de Patatas con Costillas',
       instrucciones: '1. Sofreír cebolla, ajo y costillas.\n2. Chascar las patatas en gajos.\n3. Cubrir con caldo y vino blanco.',
-      tiempo_preparacion: 65, // Activará el formato "1h 5m"
+      tiempo_preparacion: 65,
       dificultad: 2,
       fecha_creacion: new Date(Date.now() - 86400000).toISOString(),
       imagen_url: 'https://images.unsplash.com/photo-1547592180-85f173990554?w=600&auto=format&fit=crop&q=60',
@@ -100,9 +101,9 @@ export default function PantallaPrincipalRecetas() {
     }
   ];
 
-  // --- FUNCIÓN PARA CONVERTIR MINUTOS A FORMATO HUMANO (H e MINS) ---
+  // --- FUNCIÓN PARA FORMATEAR DURACIÓN (TIEMPO REAL) ---
   const formatearMinutos = (totalMinutos: number): string => {
-    if (totalMinutos === 0) return '0 min';
+    if (totalMinutos <= 0) return '0 min';
     const horas = Math.floor(totalMinutos / 60);
     const minutos = totalMinutos % 60;
     
@@ -111,23 +112,20 @@ export default function PantallaPrincipalRecetas() {
     return `${horas}h ${minutos}m`;
   };
 
-  // --- LEER RECETAS Y CATEGORÍAS ---
+  // --- LEER RECETAS Y CATEGORÍAS (SUPABASE) ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Intentar cargar Categorías de la base de datos
       const { data: databaseCats, error: errCats } = await supabase.from('categorias').select('id, nombre');
       if (errCats) throw errCats;
       
-      // Si la base de datos no tiene categorías añadidas, cargamos las de seguridad para que no salga vacío
       if (databaseCats && databaseCats.length > 0) {
         setCategorias(databaseCats);
       } else {
         setCategorias(categoriasDemoFallback);
       }
 
-      // 2. Cargar Recetas
       const { data: recs, error: errRecs } = await supabase
         .from('recetas')
         .select('id, titulo, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar')
@@ -153,7 +151,7 @@ export default function PantallaPrincipalRecetas() {
     fetchData();
   }, []);
 
-  // --- GESTIÓN DE FILTROS ---
+  // --- COMPORTAMIENTO DE FILTROS ---
   const handleToggleCategory = (id: string) => {
     setSelectedCategories(prev => 
       prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
@@ -174,7 +172,7 @@ export default function PantallaPrincipalRecetas() {
     setOnlyWithSecrets(false);
   };
 
-  // --- MOTOR DE FILTRADO ---
+  // --- MOTOR DE FILTRADO (MEMORIA COMPARTIDA) ---
   const recetasFiltradas = useMemo(() => {
     return recetas.filter(receta => {
       const coincideBusqueda = receta.titulo.toLowerCase().includes(searchQuery.toLowerCase());
@@ -187,7 +185,7 @@ export default function PantallaPrincipalRecetas() {
     });
   }, [recetas, searchQuery, selectedCategories, selectedDifficulties, minTime, maxTime, onlyWithSecrets]);
 
-  // --- GUARDAR RECETA (INSERT) ---
+  // --- GUARDAR RECETA ---
   const handleGuardarReceta = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tituloForm.trim() || !instruccionesForm.trim()) {
@@ -202,7 +200,7 @@ export default function PantallaPrincipalRecetas() {
         let finalCatId = categoriaForm;
 
         if (!fam?.length) throw new Error('Crea un familiar en tu base de datos primero.');
-        if (!finalCatId && categories.length > 0) finalCatId = categorias[0].id;
+        if (!finalCatId && categorias.length > 0) finalCatId = categorias[0].id;
 
         const { error } = await supabase
           .from('recetas')
@@ -277,7 +275,7 @@ export default function PantallaPrincipalRecetas() {
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600">
         <Database className="w-4 h-4 shrink-0" />
         <div>
-          <span className="font-bold">Base de Datos: {dataSource === 'supabase' ? 'Supabase Sincronizado' : 'Modo Demo'}</span>
+          <span className="font-bold">Base de Datos: {dataSource === 'supabase' ? 'Supabase Activo' : 'Modo Demo'}</span>
         </div>
       </div>
 
@@ -302,7 +300,7 @@ export default function PantallaPrincipalRecetas() {
 
           <div className="flex-1 flex flex-col relative overflow-hidden">
             
-            {/* --- PANTALLA PRINCIPAL --- */}
+            {/* --- PANTALLA PRINCIPAL (LISTADO) --- */}
             {currentScreen === 'list' && (
               <div className="absolute inset-0 flex flex-col">
                 <header className="bg-white border-b border-gray-200/50 px-4 pt-3 pb-3 flex flex-col gap-2.5">
@@ -335,7 +333,6 @@ export default function PantallaPrincipalRecetas() {
                   </div>
                 </header>
 
-                {/* Listado */}
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
                   {loading ? (
                     <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">
@@ -383,7 +380,7 @@ export default function PantallaPrincipalRecetas() {
                     ))
                   ) : (
                     <div className="py-20 text-center text-stone-400 text-xs font-bold">
-                      Ninguna receta coincide con los filtros aplicados.
+                      Ninguna receta coincide con tus filtros.
                     </div>
                   )}
                 </div>
@@ -404,7 +401,7 @@ export default function PantallaPrincipalRecetas() {
                         <button onClick={() => setIsFilterPanelOpen(false)} className="p-1 bg-stone-100 rounded-full"><X className="w-4 h-4" /></button>
                       </div>
 
-                      {/* Filtro 1: Tipos de comida de la Base de Datos */}
+                      {/* Filtro 1: Tipos de comida */}
                       <div className="space-y-1.5">
                         <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida</label>
                         <div className="grid grid-cols-2 gap-2">
@@ -422,9 +419,9 @@ export default function PantallaPrincipalRecetas() {
                         </div>
                       </div>
 
-                      {/* Filtro 2: Dificultad (Ticks múltiples) */}
+                      {/* Filtro 2: Dificultad */}
                       <div className="space-y-1.5">
-                        <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad de preparación</label>
+                        <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad</label>
                         <div className="flex justify-between gap-1">
                           {[1, 2, 3, 4, 5].map(num => (
                             <label key={num} className={`flex-1 py-1.5 rounded-xl border flex flex-col items-center gap-0.5 cursor-pointer text-[10px] font-bold ${
@@ -442,16 +439,16 @@ export default function PantallaPrincipalRecetas() {
                         </div>
                       </div>
 
-                      {/* Filtro 3: Doble barra de duración con formato de horas/minutos en tiempo real */}
+                      {/* Filtro 3: Barra de tiempo doble (Horas/Minutos en tiempo real) */}
                       <div className="space-y-2">
                         <div className="flex justify-between items-center">
-                          <label className="text-[9px] font-bold uppercase text-stone-400">Duración de Elaboración</label>
+                          <label className="text-[9px] font-bold uppercase text-stone-400">Duración Estimada</label>
                           <span className="text-[9px] font-mono font-bold text-amber-600">
                             {formatearMinutos(minTime)} - {formatearMinutos(maxTime)}
                           </span>
                         </div>
                         
-                        {/* Inputs numéricos manuales (Se actualizan bidireccionalmente) */}
+                        {/* Inputs numéricos manuales */}
                         <div className="flex gap-3 items-center">
                           <div className="flex-1 flex gap-1 items-center bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1">
                             <span className="text-[9px] text-stone-400 font-bold uppercase">Mín (m)</span>
@@ -477,8 +474,8 @@ export default function PantallaPrincipalRecetas() {
                           </div>
                         </div>
 
-                        {/* Sliders Dobles de rango acoplados de forma nativa */}
-                        <div className="relative w-full h-6 mt-1 flex items-center">
+                        {/* Contenedor del Rango Doble Nativo */}
+                        <div className="relative w-full h-4 mt-2 flex items-center bg-stone-100 rounded-full">
                           <input 
                             type="range" 
                             min="0" 
@@ -486,7 +483,7 @@ export default function PantallaPrincipalRecetas() {
                             step="5"
                             value={minTime}
                             onChange={(e) => setMinTime(Math.min(maxTime, Number(e.target.value)))}
-                            className="absolute w-full accent-amber-600 cursor-pointer pointer-events-auto bg-transparent z-20"
+                            className="absolute w-full accent-amber-600 cursor-pointer pointer-events-auto bg-transparent appearance-none h-1 z-30"
                           />
                           <input 
                             type="range" 
@@ -495,16 +492,14 @@ export default function PantallaPrincipalRecetas() {
                             step="5"
                             value={maxTime}
                             onChange={(e) => setMaxTime(Math.max(minTime, Number(e.target.value)))}
-                            className="absolute w-full accent-amber-700 cursor-pointer pointer-events-auto bg-transparent z-10"
+                            className="absolute w-full accent-amber-700 cursor-pointer pointer-events-auto bg-transparent appearance-none h-1 z-20"
                           />
                         </div>
                       </div>
 
-                      {/* Filtro Extra: Solo Secretas */}
+                      {/* Filtro 4: Secretos de familia */}
                       <label className="flex items-center justify-between p-2.5 bg-purple-50/50 border border-purple-200/50 rounded-xl cursor-pointer mt-1">
-                        <div className="text-left">
-                          <span className="text-[10px] font-extrabold text-purple-900 block">🤫 Secretos de Familia</span>
-                        </div>
+                        <span className="text-[10px] font-extrabold text-purple-900">🤫 Mostrar solo secretos</span>
                         <input 
                           type="checkbox" 
                           checked={onlyWithSecrets}
@@ -513,7 +508,7 @@ export default function PantallaPrincipalRecetas() {
                         />
                       </label>
 
-                      {/* Botones de acción */}
+                      {/* Botones */}
                       <div className="flex gap-2 border-t border-stone-100 pt-3 mt-1">
                         <button 
                           onClick={() => setIsFilterPanelOpen(false)}
