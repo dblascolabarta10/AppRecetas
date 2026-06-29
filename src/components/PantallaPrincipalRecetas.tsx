@@ -23,16 +23,28 @@ interface IngredienteRelacion {
   cantidad: number;
   unidad_medida: string;
   nombre_ingrediente: string;
+  es_opcional: boolean;
+}
+
+interface ComentarioFamiliar {
+  id: string;
+  puntuacion: number;
+  comentario: string;
+  fecha_creacion: string;
+  familiares: {
+    nombre: string;
+  };
 }
 
 interface Receta {
-  id: string;
+  id: string | number;
   titulo: string;
   instrucciones: string;
   tiempo_preparacion: number;
-  fecha_creacion: string; // Columna real TIMESTAMP de Supabase
+  fecha_creacion: string; 
   imagen_url?: string;
   dificultad: number;
+  valoracion_media: number; // Columna DECIMAL(3,2) real de tu SQL
   categoria_id?: string;
   secreto_familiar?: string;
   ingredientes_lista?: string; 
@@ -53,6 +65,7 @@ export default function PantallaPrincipalRecetas() {
   // --- ESTADOS DE DATOS REALES ---
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]); // Notas de la familia
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'supabase' | 'local'>('supabase');
@@ -77,7 +90,7 @@ export default function PantallaPrincipalRecetas() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // --- FUNCIÓN CALCULAR TIEMPO RELATIVO (CERCANO Y HUMANO) ---
+  // Calcular tiempo relativo ("Hace 2 días")
   const obtenerTiempoRelativo = (fechaStr?: string): string => {
     if (!fechaStr) return 'Reciente';
     try {
@@ -94,12 +107,11 @@ export default function PantallaPrincipalRecetas() {
       } else if (horas < 24) {
         return `Hace ${horas} ${horas === 1 ? 'hora' : 'horas'}`;
       } else if (dias === 1) {
-        return 'Añadida ayer';
+        return 'Ayer';
       } else if (dias < 30) {
-        return `Añadida hace ${dias} días`;
+        return `Hace ${dias} días`;
       } else {
-        // Fallback por si la receta es muy antigua
-        return fechaCarga.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        return fechaCarga.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
       }
     } catch {
       return 'Reciente';
@@ -115,15 +127,40 @@ export default function PantallaPrincipalRecetas() {
     return `${horas}h ${minutos}m`;
   };
 
-  const renderEstrellas = (dificultad: number) => {
+  // --- ESTRELLAS ESTÁNDAR (DIFICULTAD) ---
+  const renderEstrellasDificultad = (dificultad: number) => {
     return (
       <div className="flex items-center gap-0.5 shrink-0">
         {[1, 2, 3, 4, 5].map((num) => (
           <Star 
             key={num} 
-            className={`w-3 h-3 ${num <= dificultad ? 'fill-amber-500 text-amber-500' : 'text-stone-300'}`} 
+            className={`w-2.5 h-2.5 ${num <= dificultad ? 'fill-amber-600 text-amber-600' : 'text-stone-200'}`} 
           />
         ))}
+      </div>
+    );
+  };
+
+  // --- 🔥 RENDERIZADOR AVANZADO DE VALORACIÓN MEDIA (ESTRELLAS FRACCIONADAS) ---
+  const renderEstrellasValoracion = (rating: number) => {
+    const notaLimpia = rating ? Number(rating) : 5.0;
+    return (
+      <div className="flex items-center gap-0.5 shrink-0">
+        {[1, 2, 3, 4, 5].map((num) => {
+          // Calculamos el porcentaje de relleno de cada estrella individual
+          const fillPercent = Math.max(0, Math.min(100, (notaLimpia - (num - 1)) * 100));
+          return (
+            <div key={num} className="relative w-3 h-3 shrink-0">
+              {/* Estrella gris de fondo */}
+              <Star className="w-3 h-3 text-stone-200 absolute top-0 left-0" />
+              {/* Capa recortada superior dorada */}
+              <div className="absolute top-0 left-0 h-full overflow-hidden" style={{ width: `${fillPercent}%` }}>
+                <Star className="w-3 h-3 fill-amber-500 text-amber-500 absolute top-0 left-0 max-w-none" style={{ width: '12px', height: '12px' }} />
+              </div>
+            </div>
+          );
+        })}
+        <span className="text-[9px] font-mono font-black text-amber-600 ml-1 bg-amber-50 px-1 rounded border border-amber-100">{notaLimpia.toFixed(1)}</span>
       </div>
     );
   };
@@ -140,10 +177,11 @@ export default function PantallaPrincipalRecetas() {
       const { data: recs, error: errRecs } = await supabase
         .from('recetas')
         .select(`
-          id, titulo, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar,
+          id, titulo, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, valoracion_media,
           receta_ingredientes (
             cantidad,
             unidad_medida,
+            es_opcional,
             ingredientes ( nombre )
           )
         `)
@@ -166,7 +204,8 @@ export default function PantallaPrincipalRecetas() {
             return {
               cantidad: Number(ri.cantidad || 0),
               unidad_medida: ri.unidad_medida || 'unidades',
-              nombre_ingrediente: nombreInyectado
+              nombre_ingrediente: nombreInyectado,
+              es_opcional: !!ri.es_opcional
             };
           }) || [];
 
@@ -186,6 +225,26 @@ export default function PantallaPrincipalRecetas() {
       setCategorias([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // --- 💬 CARGAR COMENTARIOS Y ANÉCDOTAS DE LA RECETA DESDE SUPABASE ---
+  const fetchComentariosReceta = async (recetaId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('comentarios_valoraciones')
+        .select(`
+          id, puntuacion, comentario, fecha_creacion,
+          familiares ( nombre )
+        `)
+        .eq('receta_id', recetaId)
+        .order('fecha_creacion', { ascending: false });
+
+      if (error) throw error;
+      setComentarios(data || []);
+    } catch (err: any) {
+      console.error('Error al cargar anécdotas de familia:', err.message);
+      setComentarios([]);
     }
   };
 
@@ -247,6 +306,8 @@ export default function PantallaPrincipalRecetas() {
     }
     setSelectedReceta(finalReceta);
     setCurrentScreen('detail');
+    // Lanzamos la descarga de los comentarios de esta receta concreta
+    fetchComentariosReceta(String(receta.id));
   };
 
   const handleGuardarReceta = async (e: React.FormEvent) => {
@@ -297,7 +358,6 @@ export default function PantallaPrincipalRecetas() {
   return (
     <div className="w-full max-w-md mx-auto p-4 space-y-4">
       
-      {/* Conexión */}
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600 font-bold">
         <Database className="w-4 h-4 shrink-0" />
         <span>Base de Datos: {dataSource === 'supabase' ? 'Tablas Supabase Enlazadas' : 'Desconectado'}</span>
@@ -310,7 +370,7 @@ export default function PantallaPrincipalRecetas() {
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL */}
+      {/* CONTENEDOR MÓVIL SIMULADO */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
@@ -356,7 +416,7 @@ export default function PantallaPrincipalRecetas() {
                       <div
                         key={receta.id}
                         onClick={() => handleVerDetalle(receta)}
-                        className="w-full bg-white border border-gray-200 rounded-2xl shadow-xs cursor-pointer overflow-hidden flex flex-col text-left shrink-0 animate-fade-in"
+                        className="w-full bg-white border border-gray-200 rounded-2xl shadow-xs cursor-pointer overflow-hidden flex flex-col text-left shrink-0"
                       >
                         <div className="w-full h-40 bg-stone-200 relative">
                           <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-full object-cover"/>
@@ -372,14 +432,14 @@ export default function PantallaPrincipalRecetas() {
                           <div>
                             <div className="flex justify-between items-center gap-2 w-full">
                               <h3 className="font-extrabold text-stone-900 text-xs tracking-tight flex-1 truncate">{receta.titulo}</h3>
-                              {renderEstrellas(receta.dificultad)}
+                              {/* Valoración Media Fraccionada en Tarjeta */}
+                              {renderEstrellasValoracion(receta.valoracion_media)}
                             </div>
                             <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 leading-relaxed">
                               {receta.instrucciones.replace(/\[INGREDIENTES\][\s\S]*?\[PASOS\]\n/, '')}
                             </p>
                           </div>
 
-                          {/* PIE DE TARJETA CON EL TIEMPO RELATIVO INTEGRADÓ */}
                           <div className="flex items-center justify-between text-[9px] text-stone-400 font-mono border-t border-stone-100 mt-2.5 pt-2">
                             <span className="flex items-center gap-1 text-stone-700 font-bold">
                               <Clock className="w-3 h-3 text-amber-500" />
@@ -395,7 +455,7 @@ export default function PantallaPrincipalRecetas() {
                     ))
                   ) : (
                     <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">
-                      No hay recetas reales en tu base de datos.
+                      No hay recetas en tu base de datos.
                     </div>
                   )}
                 </div>
@@ -419,7 +479,7 @@ export default function PantallaPrincipalRecetas() {
               </div>
             )}
 
-            {/* --- VISTA 2: PANTALLA DETALLE CON FECHA --- */}
+            {/* --- VISTA 2: PANTALLA DETALLE COMPLETA --- */}
             {currentScreen === 'detail' && selectedReceta && (
               <div className="absolute inset-0 flex flex-col bg-stone-50 w-full">
                 <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0">
@@ -427,24 +487,29 @@ export default function PantallaPrincipalRecetas() {
                   <h2 className="text-xs font-bold text-stone-800 truncate text-left flex-1">{selectedReceta.titulo}</h2>
                 </header>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-4 text-left flex flex-col items-stretch w-full">
-                  <div className="w-full bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 text-left w-full flex flex-col">
+                  <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
                     <img src={selectedReceta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={selectedReceta.titulo} className="w-full h-44 object-cover"/>
                     <div className="p-4 space-y-2">
                       <div className="flex justify-between items-start gap-2">
                         <h1 className="text-xs font-black text-stone-900 leading-tight flex-1">{selectedReceta.titulo}</h1>
-                        {/* Fecha en el detalle */}
                         <span className="text-[8px] font-mono font-bold bg-stone-100 border text-stone-500 px-2 py-0.5 rounded-md uppercase shrink-0">
                           {obtenerTiempoRelativo(selectedReceta.fecha_creacion)}
                         </span>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 border-t border-stone-100 pt-2 mt-1">
-                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700">
-                          <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}
-                        </span>
-                        <div className="inline-flex items-center gap-1.5 text-[9px] font-bold text-stone-700 border-l border-stone-200 pl-3">
-                          <span className="text-stone-400 text-[8px] tracking-wide uppercase">Dificultad:</span>
-                          {renderEstrellas(selectedReceta.dificultad)}
+                      <div className="flex flex-col gap-1.5 border-t border-stone-100 pt-2 mt-1">
+                        <div className="flex items-center justify-between w-full">
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700">
+                            <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}
+                          </span>
+                          <div className="flex items-center gap-1 text-[9px] font-bold text-stone-700">
+                            <span className="text-stone-400 text-[7px] tracking-wide uppercase">Nota Media:</span>
+                            {renderEstrellasValoracion(selectedReceta.valoracion_media)}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 text-[9px] font-bold text-stone-700 w-full">
+                          <span className="text-stone-400 text-[7px] tracking-wide uppercase">Dificultad:</span>
+                          {renderEstrellasDificultad(selectedReceta.dificultad)}
                         </div>
                       </div>
                     </div>
@@ -460,8 +525,13 @@ export default function PantallaPrincipalRecetas() {
                         <div className="space-y-1.5 w-full">
                           {selectedReceta.receta_ingredientes.map((ri, index) => (
                             <div key={index} className="flex justify-between items-center border-b border-stone-50 pb-1 last:border-0 last:pb-0 w-full">
-                              <span>• {ri.nombre_ingrediente}</span>
-                              <span className="font-mono text-stone-500 font-bold bg-stone-50 px-1.5 py-0.5 rounded border">
+                              <div className="flex items-center gap-1.5 truncate flex-1">
+                                <span className="truncate">• {ri.nombre_ingrediente}</span>
+                                {ri.es_opcional && (
+                                  <span className="bg-amber-50 text-amber-700 border border-amber-200/50 text-[7px] font-sans font-black uppercase px-1 py-0.2 rounded shrink-0">Opcional</span>
+                                )}
+                              </div>
+                              <span className="font-mono text-stone-500 font-bold bg-stone-50 px-1.5 py-0.5 rounded border shrink-0">
                                 {ri.cantidad} {ri.unidad_medida}
                               </span>
                             </div>
@@ -491,6 +561,39 @@ export default function PantallaPrincipalRecetas() {
                       ))}
                     </div>
                   </div>
+
+                  {/* 💬 SECCIÓN NUEVA: ANÉCDOTAS Y NOTAS DE LA FAMILIA (ABAJO DEL TODO) */}
+                  <div className="space-y-1.5 w-full shrink-0 pt-2 pb-6">
+                    <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">
+                      💬 Anécdotas y Notas de la Familia
+                    </span>
+                    <div className="space-y-2 w-full">
+                      {comentarios.length > 0 ? (
+                        comentarios.map((com) => (
+                          <div key={com.id} className="bg-white p-3 rounded-2xl border border-stone-200 shadow-3xs flex flex-col gap-1 w-full">
+                            <div className="flex justify-between items-center w-full border-b border-stone-50 pb-1.5">
+                              <span className="font-extrabold text-stone-900 text-[10px] flex items-center gap-1">
+                                <ChefHat className="w-3 h-3 text-amber-500" />
+                                {com.familiares?.nombre || 'Familiar'}
+                              </span>
+                              <div className="flex items-center gap-1 text-[8px] font-mono text-stone-400">
+                                {renderEstrellasDificultad(com.puntuacion)}
+                                <span>({obtenerTiempoRelativo(com.fecha_creacion)})</span>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-stone-600 font-sans leading-relaxed italic bg-stone-50/40 p-2 rounded-xl border border-stone-100 mt-1">
+                              "{com.comentario || 'Le dio una valoración sin dejar comentarios.'}"
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">
+                          Nadie ha dejado ninguna anotación sobre este plato todavía. ¡Sé el primero!
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
