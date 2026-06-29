@@ -37,7 +37,6 @@ interface Receta {
   ingredientes_lista?: string; 
   receta_ingredientes?: IngredienteRelacion[];
   categorias?: { nombre: string }; 
-  is_local?: boolean;
 }
 
 interface Categoria {
@@ -51,7 +50,7 @@ export default function PantallaPrincipalRecetas() {
   const [selectedReceta, setSelectedReceta] = useState<Receta | null>(null);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState<boolean>(false);
 
-  // --- ESTADOS DE DATOS ---
+  // --- ESTADOS DE DATOS REALES ---
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -78,30 +77,6 @@ export default function PantallaPrincipalRecetas() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Fallbacks locales consistentes por si la base de datos está vacía
-  const fallbackCategorias: Categoria[] = [
-    { id: 'demo-cat-1', nombre: 'Pasta y Arroz' },
-    { id: 'demo-cat-2', nombre: 'Guisos y Estofados' }
-  ];
-
-  const fallbackRecetas: Receta[] = [
-    {
-      id: 'demo-rec-1',
-      titulo: 'Croquetas de Jamón de la Abuela',
-      ingredientes_lista: '• 200g de Jamón Ibérico picado\n• 1 Litro de Leche entera\n• 90g de Harina\n• 90g de Mantequilla',
-      instrucciones: 'Derretir la mantequilla en una sartén. Dorar la harina para la roux. Verter la leche entera caliente despacio sin dejar de batir. Añadir el jamón picado y dejar reposar la masa.',
-      tiempo_preparacion: 45,
-      dificultad: 4,
-      secreto_familiar: 'Añadir un toque de caldo de cocido concentrado.',
-      categoria_id: 'demo-cat-2',
-      receta_ingredientes: [
-        { cantidad: 200, unidad_medida: 'gramos', nombre_ingrediente: 'Jamón Ibérico' },
-        { cantidad: 1, unidad_medida: 'litro', nombre_ingrediente: 'Leche entera' }
-      ],
-      is_local: true
-    }
-  ];
-
   const formatearMinutos = (totalMinutos: number): string => {
     if (totalMinutos <= 0) return '0 min';
     const horas = Math.floor(totalMinutos / 60);
@@ -124,23 +99,18 @@ export default function PantallaPrincipalRecetas() {
     );
   };
 
-  // --- LEER DE BASE DE DATOS CON JOINS REALES ---
+  // --- LEER DE TU BASE DE DATOS REAL ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Recoger las categorías de tu base de datos real
-      const { data: dbCats } = await supabase.from('categorias').select('id, nombre');
-      
-      // Si Supabase devuelve categorías, las usamos, si no, metemos el fallback controlado
-      if (dbCats && dbCats.length > 0) {
-        setCategorias(dbCats);
-      } else {
-        setCategorias(fallbackCategorias);
-      }
+      // 1. Cargar tus categorías estrictas de Supabase
+      const { data: dbCats, error: errCats } = await supabase.from('categorias').select('id, nombre');
+      if (errCats) throw errCats;
+      setCategorias(dbCats || []);
 
-      // 2. Consulta relacional explícita cruzando ingredientes y categorías
-      const { data: recs, error } = await supabase
+      // 2. Cargar tus recetas estrictas de Supabase junto a la intermedia de ingredientes
+      const { data: recs, error: errRecs } = await supabase
         .from('recetas')
         .select(`
           id, titulo, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar,
@@ -148,12 +118,11 @@ export default function PantallaPrincipalRecetas() {
             cantidad,
             unidad_medida,
             ingredientes ( nombre )
-          ),
-          categorias ( nombre )
+          )
         `)
         .order('fecha_creacion', { ascending: false });
 
-      if (error) throw error;
+      if (errRecs) throw errRecs;
 
       if (recs) {
         const mapeadas = recs.map((r: any) => {
@@ -183,11 +152,11 @@ export default function PantallaPrincipalRecetas() {
         setDataSource('supabase');
       }
     } catch (err: any) {
-      console.warn('Cargando entorno local demo:', err.message);
+      console.error('Error al conectar con las tablas reales:', err.message);
       setErrorMsg(err.message);
-      setRecetas(fallbackRecetas);
-      setCategorias(fallbackCategorias);
       setDataSource('local');
+      setRecetas([]);
+      setCategorias([]);
     } finally {
       setLoading(false);
     }
@@ -195,7 +164,7 @@ export default function PantallaPrincipalRecetas() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Diccionario reactivo para asociar los UUIDs de las categorías a sus nombres en pantalla
+  // Mapeador dinámico reactivo para obtener los nombres según el UUID de la base de datos
   const mapaCategorias = useMemo(() => {
     const obj: Record<string, string> = {};
     categorias.forEach(c => { obj[c.id] = c.nombre; });
@@ -218,11 +187,11 @@ export default function PantallaPrincipalRecetas() {
     setOnlyWithSecrets(false);
   };
 
-  // --- FILTRADO ADITIVO REAL POR ID ---
+  // --- MOTOR DE FILTRADO ADITIVO STRICT POR ID ---
   const recetasFiltradas = useMemo(() => {
     return recetas.filter(receta => {
       const coincideBusqueda = receta.titulo.toLowerCase().includes(searchQuery.toLowerCase());
-      const coincideCategory = selectedCategories.length === 0 || (receta.categoria_id && selectedCategories.includes(receta.categoria_id.toString()));
+      const coincideCategory = selectedCategories.length === 0 || (receta.categoria_id && selectedCategories.includes(String(receta.categoria_id)));
       const coincideDificultad = selectedDifficulties.length === 0 || selectedDifficulties.includes(receta.dificultad);
       const coincideTiempo = receta.tiempo_preparacion >= minTime && receta.tiempo_preparacion <= maxTime;
       const coincideSecreto = !onlyWithSecrets || (receta.secreto_familiar && receta.secreto_familiar.trim().length > 0);
@@ -286,20 +255,7 @@ export default function PantallaPrincipalRecetas() {
         setSuccessToast('¡Guardado con éxito!');
         await fetchData();
       } else {
-        const nueva: Receta = {
-          id: `local-${Date.now()}`,
-          titulo: tituloForm.trim(),
-          ingredientes_lista: ingredientesForm.trim(),
-          instrucciones: instruccionesForm.trim(),
-          tiempo_preparacion: Number(tiempoForm),
-          dificultad: Number(dificultadForm),
-          secreto_familiar: secretoForm.trim() || null,
-          imagen_url: urlImagenForm.trim() || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60',
-          categoria_id: categoriaForm || 'demo-cat-1',
-          is_local: true
-        };
-        setRecetas(prev => [nueva, ...prev]);
-        setSuccessToast('¡Guardado local activo!');
+        alert('Modo local no disponible sin tablas en la nube.');
       }
       setTituloForm('');
       setInstruccionesForm('');
@@ -316,9 +272,10 @@ export default function PantallaPrincipalRecetas() {
   return (
     <div className="w-full max-w-md mx-auto p-4 space-y-4">
       
+      {/* Indicador de conexión */}
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600 font-bold">
         <Database className="w-4 h-4 shrink-0" />
-        <span>Base de Datos: {dataSource === 'supabase' ? 'Supabase Conectado' : 'Modo Demo'}</span>
+        <span>Base de Datos: {dataSource === 'supabase' ? 'Tablas Supabase Enlazadas' : 'Desconectado'}</span>
       </div>
 
       {successToast && (
@@ -328,7 +285,7 @@ export default function PantallaPrincipalRecetas() {
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL BLINDADO */}
+      {/* CONTENEDOR MÓVIL SIMULADO */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
@@ -350,12 +307,6 @@ export default function PantallaPrincipalRecetas() {
                       <span className="text-[8px] text-amber-600 font-extrabold tracking-widest uppercase block">Mis Recetas</span>
                       <h1 className="text-md font-black text-gray-900 tracking-tight">Cocina Familiar</h1>
                     </div>
-                    <button 
-                      onClick={() => setIsFilterPanelOpen(true)}
-                      className="w-8 h-8 rounded-full flex items-center justify-center border border-stone-200 bg-stone-50 shrink-0"
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                    </button>
                   </div>
 
                   <div className="relative w-full">
@@ -370,12 +321,12 @@ export default function PantallaPrincipalRecetas() {
                   </div>
                 </header>
 
-                {/* CONTENEDOR FLEX DE TARJETAS BLINDADO AL ANCHO COMPLETO */}
-                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 flex flex-col items-stretch w-full">
+                {/* CONTENEDOR DE TARJETAS FLUIDO */}
+                <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 flex flex-col items-stretch w-full pb-20">
                   {loading ? (
                     <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">
                       <RefreshCw className="w-5 h-5 animate-spin text-amber-600 mb-2" />
-                      <span className="text-[10px]">Cargando recetario...</span>
+                      <span className="text-[10px]">Cargando recetario real...</span>
                     </div>
                   ) : recetasFiltradas.length > 0 ? (
                     recetasFiltradas.map((receta) => (
@@ -386,10 +337,12 @@ export default function PantallaPrincipalRecetas() {
                       >
                         <div className="w-full h-40 bg-stone-200 relative">
                           <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-full object-cover"/>
-                          <span className="absolute top-2 left-2 bg-black/60 text-white font-sans text-[8px] font-extrabold tracking-wide uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
-                            <Layers className="w-2.5 h-2.5 text-amber-400" />
-                            {receta.categorias?.nombre || mapaCategorias[receta.categoria_id || ''] || 'Comida'}
-                          </span>
+                          {receta.categoria_id && mapaCategorias[receta.categoria_id] && (
+                            <span className="absolute top-2 left-2 bg-black/60 text-white font-sans text-[8px] font-extrabold tracking-wide uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
+                              <Layers className="w-2.5 h-2.5 text-amber-400" />
+                              {mapaCategorias[receta.categoria_id]}
+                            </span>
+                          )}
                         </div>
 
                         <div className="p-3.5 bg-white flex flex-col justify-between">
@@ -417,12 +370,25 @@ export default function PantallaPrincipalRecetas() {
                     ))
                   ) : (
                     <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">
-                      Ninguna receta coincide con tus filtros.
+                      No hay recetas en tu base de datos.
                     </div>
                   )}
                 </div>
 
-                <button onClick={() => setCurrentScreen('create')} className="absolute bottom-5 right-5 w-11 h-11 bg-amber-600 hover:bg-amber-700 text-white rounded-full flex items-center justify-center shadow-lg z-10">
+                {/* 🎛️ BOTÓN DE FILTRADO (ABAJO A LA IZQUIERDA) */}
+                <button 
+                  onClick={() => setIsFilterPanelOpen(true)}
+                  className={`absolute bottom-5 left-5 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer z-10 ${
+                    selectedCategories.length > 0 || selectedDifficulties.length > 0 || minTime > 0 || maxTime < 180 || onlyWithSecrets
+                      ? 'bg-amber-800 text-white border border-amber-500'
+                      : 'bg-amber-600 hover:bg-amber-700 text-white'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-5 h-5 stroke-[2.5]" />
+                </button>
+
+                {/* ➕ BOTÓN FLOTANTE AÑADIR (ABAJO A LA DERECHA) */}
+                <button onClick={() => setCurrentScreen('create')} className="absolute bottom-5 right-5 w-11 h-11 bg-amber-600 hover:bg-amber-700 text-white rounded-full flex items-center justify-center shadow-lg z-10 cursor-pointer active:scale-95 transition-transform">
                   <Plus className="w-5.5 h-5.5 stroke-[2.5]" />
                 </button>
               </div>
@@ -528,14 +494,14 @@ export default function PantallaPrincipalRecetas() {
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Categoría</label>
                     <select value={categoriaForm} onChange={(e) => setCategoriaForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none bg-white">
-                      <option value="">Selecciona una categoría...</option>
+                      <option value="">Selecciona la categoría real...</option>
                       {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                     </select>
                   </div>
 
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Lista de Ingredientes *</label>
-                    <textarea rows={3} required placeholder="• 200g de carne picada&#10;• Láminas de pasta..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
+                    <textarea rows={3} required placeholder="• 250g de pasta..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
                   </div>
 
                   <div className="space-y-1 w-full">
@@ -557,7 +523,7 @@ export default function PantallaPrincipalRecetas() {
               </div>
             )}
 
-            {/* --- PANEL DE FILTROS REALES (SIN ERRORES DE ANCHO) --- */}
+            {/* --- PANEL DE FILTROS --- */}
             {isFilterPanelOpen && (
               <div className="absolute inset-0 bg-black/40 z-50 flex flex-col justify-end">
                 <div className="w-full max-h-[85%] bg-white rounded-t-3xl p-5 overflow-y-auto flex flex-col gap-4 text-left shadow-2xl">
@@ -566,27 +532,31 @@ export default function PantallaPrincipalRecetas() {
                     <button onClick={() => setIsFilterPanelOpen(false)} className="p-1 bg-stone-100 rounded-full"><X className="w-4 h-4" /></button>
                   </div>
 
-                  {/* Tipo de comida REAL de Supabase */}
+                  {/* Categorías Reales de Supabase */}
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida (Base de Datos)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {categorias.map(cat => (
-                        <label key={cat.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-xl border border-stone-200/60 cursor-pointer text-[10px] truncate">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedCategories.includes(cat.id.toString())} 
-                            onChange={() => handleToggleCategory(cat.id.toString())} 
-                            className="accent-amber-600 shrink-0"
-                          />
-                          <span className="truncate">{cat.nombre}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida (Desde DB)</label>
+                    {categorias.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {categorias.map(cat => (
+                          <label key={cat.id} className="flex items-center gap-2 p-2 bg-stone-50 rounded-xl border border-stone-200/60 cursor-pointer text-[10px] truncate">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedCategories.includes(String(cat.id))} 
+                              onChange={() => handleToggleCategory(String(cat.id))} 
+                              className="accent-amber-600 shrink-0"
+                            />
+                            <span className="truncate">{cat.nombre}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[9px] text-stone-400 italic">No hay categorías guardadas en tu Supabase.</p>
+                    )}
                   </div>
 
                   {/* Dificultad */}
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad</label>
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad de preparación</label>
                     <div className="flex justify-between gap-1">
                       {[1, 2, 3, 4, 5].map(num => (
                         <label key={num} className={`flex-1 py-1.5 rounded-xl border flex flex-col items-center gap-0.5 cursor-pointer text-[10px] font-bold ${
@@ -599,7 +569,7 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
-                  {/* Duración de Tiempo Doble Deslizador - Separados completamente sin solapamiento */}
+                  {/* Duración de Tiempo Separada */}
                   <div className="space-y-3 w-full">
                     <div className="flex justify-between items-center">
                       <label className="text-[9px] font-bold uppercase text-stone-400">Duración Acotada</label>
