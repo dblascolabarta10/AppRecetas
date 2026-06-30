@@ -1,8 +1,7 @@
 // src/App.jsx
 import { useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import PantallaPrincipalRecetas from './components/PantallaPrincipalRecetas';
-
+import PantallaPrincipalRecetas from './components/recetas/PantallaPrincipalRecetas';
 function App() {
   useEffect(() => {
     async function testConexion() {
