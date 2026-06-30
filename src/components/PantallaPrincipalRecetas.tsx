@@ -15,7 +15,8 @@ import {
    Star,
    Layers,
    Utensils,
-   Calendar
+   Calendar,
+   ArrowUpDown
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -45,7 +46,7 @@ interface Receta {
   imagen_url?: string;
   dificultad: number;
   valoracion_media: number; 
-  num_valoraciones?: number; // Guardará el conteo real de votos
+  num_valoraciones?: number; 
   categoria_id?: string;
   secreto_familiar?: string;
   ingredientes_lista?: string; 
@@ -71,13 +72,16 @@ export default function PantallaPrincipalRecetas() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'supabase' | 'local'>('supabase');
 
-  // --- ESTADOS DE FILTROS ---
+  // --- ESTADOS DE FILTROS AVANZADOS ---
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedDifficulties, setSelectedDifficulties] = useState<number[]>([]);
+  const [selectedRatings, setSelectedRatings] = useState<number[]>([]); // Filtro por estrellas
   const [minTime, setMinTime] = useState<number>(0);
   const [maxTime, setMaxTime] = useState<number>(180);
   const [onlyWithSecrets, setOnlyWithSecrets] = useState<boolean>(false);
+  const [timeRange, setTimeRange] = useState<string>('all'); // 'all' | 'week' | 'month'
+  const [sortBy, setSortBy] = useState<'recent' | 'old'>('recent'); // Orden por antigüedad
 
   // --- ESTADOS DEL FORMULARIO ---
   const [tituloForm, setTituloForm] = useState<string>('');
@@ -146,27 +150,29 @@ export default function PantallaPrincipalRecetas() {
     return `${horas}h ${minutos}m`;
   };
 
-  // --- 🔴 REVOLUCIÓN DE CÍRCULOS DE DIFICULTAD DINÁMICOS POR TONOS ---
-  const renderCirculosDificultad = (dificultad: number) => {
-    let colorClass = 'bg-emerald-500'; // Nivel 1 - Muy fácil
-    if (dificultad === 2) colorClass = 'bg-lime-500'; // Nivel 2 - Fácil
-    if (dificultad === 3) colorClass = 'bg-amber-500'; // Nivel 3 - Medio
-    if (dificultad === 4) colorClass = 'bg-orange-500'; // Nivel 4 - Algo difícil
-    if (dificultad === 5) colorClass = 'bg-red-500'; // Nivel 5 - Difícil
+  // --- OBTENER COLOR DE LOS CÍRCULOS DE DIFICULTAD ---
+  const obtenerColorCirculo = (dificultad: number): string => {
+    if (dificultad === 1) return 'bg-emerald-500';
+    if (dificultad === 2) return 'bg-lime-500';
+    if (dificultad === 3) return 'bg-amber-500';
+    if (dificultad === 4) return 'bg-orange-500';
+    return 'bg-red-500';
+  };
 
+  const renderCirculosDificultad = (dificultad: number) => {
+    const colorClass = obtenerColorCirculo(dificultad);
     return (
       <div className="flex items-center gap-1 shrink-0 bg-stone-100/80 px-2 py-0.5 rounded-full border border-stone-200/40">
         <span className="text-[7px] text-stone-500 font-sans font-black uppercase tracking-wider mr-0.5">Dif:</span>
         {Array.from({ length: dificultad }).map((_, i) => (
-          <span key={i} className={`w-1.5 h-1.5 rounded-full ${colorClass} animate-pulse`} />
+          <span key={i} className={`w-1.5 h-1.5 rounded-full ${colorClass}`} />
         ))}
       </div>
     );
   };
 
-  // --- ESTRELLAS DE VALORACIÓN MEDIA CON EL TOTAL ENTRE PARÉNTESIS ---
   const renderEstrellasValoracion = (rating: number, count: number = 0) => {
-    const notaLimpia = rating ? Number(rating) : 5.0;
+    const notaLimpia = count === 0 ? 0.0 : (rating ? Number(rating) : 5.0);
     return (
       <div className="flex items-center gap-0.5 shrink-0">
         {[1, 2, 3, 4, 5].map((num) => {
@@ -181,14 +187,14 @@ export default function PantallaPrincipalRecetas() {
           );
         })}
         <span className="text-[9px] font-mono font-black text-amber-600 ml-1 bg-amber-50 px-1 rounded border border-amber-100 flex items-center gap-0.5">
-          <span>{notaLimpia.toFixed(1)}</span>
+          <span>{count === 0 ? "0.0" : notaLimpia.toFixed(1)}</span>
           <span className="text-stone-400 font-sans font-bold text-[8px]">({count})</span>
         </span>
       </div>
     );
   };
 
-  // --- LEER DE LA BASE DE DATOS REAL CON RECUENTO DE COMENTARIOS ---
+  // --- LEER DE LA BASE DE DATOS REAL ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
@@ -236,7 +242,7 @@ export default function PantallaPrincipalRecetas() {
           return {
             ...r,
             receta_ingredientes: ingRelacionales,
-            num_valoraciones: r.comentarios_valoraciones?.length || 0 // Mapeamos la longitud de comentarios
+            num_valoraciones: r.comentarios_valoraciones?.length || 0 
           };
         });
         setRecetas(mapeadas);
@@ -288,25 +294,57 @@ export default function PantallaPrincipalRecetas() {
     setSelectedDifficulties(prev => prev.includes(diff) ? prev.filter(d => d !== diff) : [...prev, diff]);
   };
 
+  const handleToggleRating = (rate: number) => {
+    setSelectedRatings(prev => prev.includes(rate) ? prev.filter(r => r !== rate) : [...prev, rate]);
+  };
+
   const handleResetFilters = () => {
     setSelectedCategories([]);
     setSelectedDifficulties([]);
+    setSelectedRatings([]);
     setMinTime(0);
     setMaxTime(180);
     setOnlyWithSecrets(false);
+    setTimeRange('all');
+    setSortBy('recent');
   };
 
+  // --- MOTOR DE FILTRADO Y ORDENACIÓN POR ANTIGÜEDAD EN MEMORIA ---
   const recetasFiltradas = useMemo(() => {
-    return recetas.filter(receta => {
+    let resultado = recetas.filter(receta => {
       const coincideBusqueda = receta.titulo.toLowerCase().includes(searchQuery.toLowerCase());
       const coincideCategory = selectedCategories.length === 0 || (receta.categoria_id && selectedCategories.includes(String(receta.categoria_id)));
       const coincideDificultad = selectedDifficulties.length === 0 || selectedDifficulties.includes(receta.dificultad);
+      
+      // Filtro por tramo entero de las estrellas valoradas
+      const notaEntera = receta.num_valoraciones === 0 ? 0 : Math.floor(receta.valoracion_media || 5);
+      const coincideValoracion = selectedRatings.length === 0 || selectedRatings.includes(notaEntera);
+      
       const coincideTiempo = receta.tiempo_preparacion >= minTime && receta.tiempo_preparacion <= maxTime;
       const coincideSecreto = !onlyWithSecrets || (receta.secreto_familiar && receta.secreto_familiar.trim().length > 0);
 
-      return coincideBusqueda && coincideCategory && coincideDificultad && coincideTiempo && coincideSecreto;
+      // Filtro temporal estricto de antigüedad
+      let coincideAntiguedad = true;
+      if (receta.fecha_creacion) {
+        const fechaReceta = new Date(receta.fecha_creacion).getTime();
+        const ahora = new Date().getTime();
+        if (timeRange === 'week') {
+          coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 7);
+        } else if (timeRange === 'month') {
+          coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 30);
+        }
+      }
+
+      return coincideBusqueda && coincideCategory && coincideDificultad && coincideValoracion && coincideTiempo && coincideSecreto && coincideAntiguedad;
     });
-  }, [recetas, searchQuery, selectedCategories, selectedDifficulties, minTime, maxTime, onlyWithSecrets]);
+
+    // Ordenación por antigüedad en base al estado de la barra
+    return [...resultado].sort((a, b) => {
+      const tA = a.fecha_creacion ? new Date(a.fecha_creacion).getTime() : 0;
+      const tB = b.fecha_creacion ? new Date(b.fecha_creacion).getTime() : 0;
+      return sortBy === 'recent' ? tB - tA : tA - tB;
+    });
+  }, [recetas, searchQuery, selectedCategories, selectedDifficulties, selectedRatings, minTime, maxTime, onlyWithSecrets, timeRange, sortBy]);
 
   const procesarPasosDeInstrucciones = (texto: string): string[] => {
     if (!texto) return [];
@@ -363,8 +401,6 @@ export default function PantallaPrincipalRecetas() {
         if (error) throw error;
         setSuccessToast('¡Guardado con éxito!');
         await fetchData();
-      } else {
-        alert('Modo local deshabilitado.');
       }
       setTituloForm('');
       setInstruccionesForm('');
@@ -381,7 +417,6 @@ export default function PantallaPrincipalRecetas() {
   return (
     <div className="w-full max-w-md mx-auto p-4 space-y-4">
       
-      {/* Estado */}
       <div className="p-3 rounded-xl border text-xs text-left flex gap-2 bg-emerald-500/5 border-emerald-500/20 text-emerald-600 font-bold">
         <Database className="w-4 h-4 shrink-0" />
         <span>Base de Datos: {dataSource === 'supabase' ? 'Tablas Supabase Enlazadas' : 'Desconectado'}</span>
@@ -394,7 +429,7 @@ export default function PantallaPrincipalRecetas() {
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL */}
+      {/* CONTENEDOR MÓVIL SIMULADO */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
@@ -433,7 +468,7 @@ export default function PantallaPrincipalRecetas() {
                   {loading ? (
                     <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">
                       <RefreshCw className="w-5 h-5 animate-spin text-amber-600 mb-2" />
-                      <span className="text-[10px]">Cargando recetario...</span>
+                      <span className="text-[10px]">Cargando recetario real...</span>
                     </div>
                   ) : recetasFiltradas.length > 0 ? (
                     recetasFiltradas.map((receta) => (
@@ -456,7 +491,6 @@ export default function PantallaPrincipalRecetas() {
                           <div>
                             <div className="flex justify-between items-center gap-2 w-full">
                               <h3 className="font-extrabold text-stone-900 text-xs tracking-tight flex-1 truncate">{receta.titulo}</h3>
-                              {/* Valoración Media con contador de votos */}
                               {renderEstrellasValoracion(receta.valoracion_media, receta.num_valoraciones)}
                             </div>
                             <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 leading-relaxed">
@@ -470,7 +504,6 @@ export default function PantallaPrincipalRecetas() {
                               {formatearMinutos(receta.tiempo_preparacion)}
                             </span>
                             
-                            {/* 🔥 Círculos de dificultad por colores integrados en la vista previa */}
                             {renderCirculosDificultad(receta.dificultad)}
 
                             <span className="flex items-center gap-1 font-sans text-stone-400 font-medium">
@@ -483,7 +516,7 @@ export default function PantallaPrincipalRecetas() {
                     ))
                   ) : (
                     <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">
-                      No hay recetas en tu base de datos.
+                      No hay recetas guardadas en la base de datos.
                     </div>
                   )}
                 </div>
@@ -492,7 +525,7 @@ export default function PantallaPrincipalRecetas() {
                 <button 
                   onClick={() => setIsFilterPanelOpen(true)}
                   className={`absolute bottom-5 left-5 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer z-10 ${
-                    selectedCategories.length > 0 || selectedDifficulties.length > 0 || minTime > 0 || maxTime < 180 || onlyWithSecrets
+                    selectedCategories.length > 0 || selectedDifficulties.length > 0 || selectedRatings.length > 0 || minTime > 0 || maxTime < 180 || onlyWithSecrets || timeRange !== 'all' || sortBy !== 'recent'
                       ? 'bg-amber-800 text-white border border-amber-500'
                       : 'bg-amber-600 hover:bg-amber-700 text-white'
                   }`}
@@ -537,7 +570,6 @@ export default function PantallaPrincipalRecetas() {
                         </div>
                         <div className="flex items-center justify-between gap-1 text-[9px] font-bold text-stone-700 w-full border-t border-stone-50 pt-1.5">
                           <span className="text-stone-400 text-[7px] tracking-wide uppercase">Complejidad:</span>
-                          {/* Círculos aplicados también al detalle */}
                           {renderCirculosDificultad(selectedReceta.dificultad)}
                         </div>
                       </div>
@@ -591,7 +623,7 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
-                  {/* ANÉCDOTAS DE LA FAMILIA */}
+                  {/* ANÉCDOTAS */}
                   <div className="space-y-1.5 w-full shrink-0 pt-2 pb-6">
                     <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">
                       💬 Anécdotas y Notas de la Familia
@@ -621,7 +653,6 @@ export default function PantallaPrincipalRecetas() {
                       )}
                     </div>
                   </div>
-
                 </div>
               </div>
             )}
@@ -685,15 +716,16 @@ export default function PantallaPrincipalRecetas() {
               </div>
             )}
 
-            {/* --- PANEL DE FILTROS --- */}
+            {/* --- PANEL DE FILTROS REALES (ACTUALIZADO COMPLETO) --- */}
             {isFilterPanelOpen && (
               <div className="absolute inset-0 bg-black/40 z-50 flex flex-col justify-end">
-                <div className="w-full max-h-[85%] bg-white rounded-t-3xl p-5 overflow-y-auto flex flex-col gap-4 text-left shadow-2xl">
+                <div className="w-full max-h-[85%] bg-white rounded-t-3xl p-5 overflow-y-auto flex flex-col gap-4 text-left shadow-2xl animate-in slide-in-from-bottom duration-150">
                   <div className="flex justify-between items-center border-b border-stone-100 pb-2">
                     <h2 className="text-xs font-black uppercase tracking-wider text-stone-500">Filtros de Recetas</h2>
                     <button onClick={() => setIsFilterPanelOpen(false)} className="p-1 bg-stone-100 rounded-full"><X className="w-4 h-4" /></button>
                   </div>
 
+                  {/* 1. Categorías Reales */}
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-bold uppercase text-stone-400">Tipo de Comida</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -706,20 +738,95 @@ export default function PantallaPrincipalRecetas() {
                     </div>
                   </div>
 
+                  {/* 2. 🔥 Dificultad con círculos en lugar de estrellas */}
                   <div className="space-y-1.5">
-                    <label className="text-[9px] font-bold uppercase text-stone-400">Dificultad</label>
-                    <div className="flex justify-between gap-1">
-                      {[1, 2, 3, 4, 5].map(num => (
-                        <label key={num} className={`flex-1 py-1.5 rounded-xl border flex flex-col items-center gap-0.5 cursor-pointer text-[10px] font-bold ${
-                          selectedDifficulties.includes(num) ? 'bg-amber-50 border-amber-600 text-amber-700' : 'bg-stone-50 border-stone-200 text-stone-600'
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Complejidad (Círculos)</label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {[1, 2, 3, 4, 5].map(num => {
+                        const colorCirculo = obtenerColorCirculo(num);
+                        return (
+                          <label key={num} className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${
+                            selectedDifficulties.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'
+                          }`}>
+                            <div className="flex items-center gap-2">
+                              <input type="checkbox" checked={selectedDifficulties.includes(num)} onChange={() => handleToggleDifficulty(num)} className="accent-amber-600"/>
+                              <span>Nivel {num}</span>
+                            </div>
+                            <div className="flex gap-1">
+                              {Array.from({ length: num }).map((_, i) => (
+                                <span key={i} className={`w-2 h-2 rounded-full ${colorCirculo}`} />
+                              ))}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 3. ⭐ NUEVA SECCIÓN: Filtrar por Valoración Media (Estrellas) */}
+                  <div className="space-y-1.5">
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Valoración Media Mínima</label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {[5, 4, 3, 2, 1].map(num => (
+                        <label key={num} className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${
+                          selectedRatings.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'
                         }`}>
-                          <input type="checkbox" checked={selectedDifficulties.includes(num)} onChange={() => handleToggleDifficulty(num)} className="hidden"/>
-                          <span>{num} ⭐</span>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={selectedRatings.includes(num)} onChange={() => handleToggleRating(num)} className="accent-amber-600"/>
+                            <span>{num} {num === 5 ? 'Estrellas perfectas' : 'Estrellas o más'}</span>
+                          </div>
+                          <div className="flex gap-0.5 text-amber-500">
+                            {Array.from({ length: num }).map((_, i) => <Star key={i} className="w-3 h-3 fill-amber-500" />)}
+                          </div>
                         </label>
                       ))}
                     </div>
                   </div>
 
+                  {/* 4. 📅 NUEVA SECCIÓN: Orden y Rango por Antigüedad */}
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-bold uppercase text-stone-400">Antigüedad de las Recetas</label>
+                    
+                    {/* Tramos de fecha */}
+                    <div className="flex gap-1.5 w-full">
+                      {[
+                        { id: 'all', label: 'Cualquier fecha' },
+                        { id: 'week', label: 'Última semana' },
+                        { id: 'month', label: 'Último mes' }
+                      ].map(range => (
+                        <button
+                          key={range.id} type="button" onClick={() => setTimeRange(range.id)}
+                          className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase transition-colors ${
+                            timeRange === range.id ? 'bg-amber-600 text-white border-amber-600' : 'bg-stone-50 text-stone-500 border-stone-200'
+                          }`}
+                        >
+                          {range.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Dirección del orden */}
+                    <div className="flex gap-1.5 w-full mt-1">
+                      <button
+                        type="button" onClick={() => setSortBy('recent')}
+                        className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${
+                          sortBy === 'recent' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        <ArrowUpDown className="w-3 h-3" /> Más recientes primero
+                      </button>
+                      <button
+                        type="button" onClick={() => setSortBy('old')}
+                        className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${
+                          sortBy === 'old' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        <ArrowUpDown className="w-3 h-3" /> Más antiguas primero
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Duración de Tiempo Separada */}
                   <div className="space-y-3 w-full">
                     <div className="flex justify-between items-center">
                       <label className="text-[9px] font-bold uppercase text-stone-400">Duración Acotada</label>
