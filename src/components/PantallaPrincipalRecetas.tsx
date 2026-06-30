@@ -16,7 +16,9 @@ import {
    Layers,
    Utensils,
    Calendar,
-   ArrowUpDown
+   ArrowUpDown,
+   Upload,
+   ImageIcon
 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
@@ -49,6 +51,7 @@ interface Receta {
   valoracion_media: number; 
   num_valoraciones?: number; 
   categoria_id?: string;
+  categorias_ids?: string[]; // Soporte para múltiples tags visuales
   secreto_familiar?: string;
   ingredientes_lista?: string; 
   receta_ingredientes?: IngredienteRelacion[];
@@ -68,7 +71,7 @@ export default function PantallaPrincipalRecetas() {
   // --- ESTADOS DE DATOS REALES ---
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
-  const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]); // <-- RESTAURADO: El hook que faltaba
+  const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]); 
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dataSource, setDataSource] = useState<'supabase' | 'local'>('supabase');
@@ -84,15 +87,20 @@ export default function PantallaPrincipalRecetas() {
   const [timeRange, setTimeRange] = useState<string>('all'); 
   const [sortBy, setSortBy] = useState<'recent' | 'old'>('recent'); 
 
-  // --- ESTADOS DEL FORMULARIO ---
+  // --- ESTADOS DEL FORMULARIO ACTUALIZADOS ---
   const [tituloForm, setTituloForm] = useState<string>('');
   const [descripcionForm, setDescripcionForm] = useState<string>(''); 
   const [instruccionesForm, setInstruccionesForm] = useState<string>('');
   const [ingredientesForm, setIngredientesForm] = useState<string>('');
-  const [tiempoForm, setTiempoForm] = useState<number>(30);
-  const [urlImagenForm, setUrlImagenForm] = useState<string>('');
+  
+  // Duración separada en Horas y Minutos
+  const [tiempoHorasForm, setTiempoHorasForm] = useState<number>(0);
+  const [tiempoMinutosForm, setTiempoMinutosForm] = useState<number>(30);
+  
+  // Dificultad e imágenes por dispositivo
   const [dificultadForm, setDificultadForm] = useState<number>(3);
-  const [categoriaForm, setCategoriaForm] = useState<string>('');
+  const [categoriasFormMúltiples, setCategoriasFormMúltiples] = useState<string[]>([]); // Array de categorías elegidas
+  const [imagenPreview, setImagenPreview] = useState<string | null>(null); // Vista previa del archivo local
   const [secretoForm, setSecretoForm] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
@@ -107,8 +115,8 @@ export default function PantallaPrincipalRecetas() {
       id: 'demo-1',
       titulo: 'Croquetas de Jamón de la Abuela',
       descripcion: 'Receta tradicional cremosa por dentro y muy crujiente por fuera.',
-      ingredientes_lista: '• 200g de Jamón Ibérico picado\n• 1 Litro de Leche entera',
-      instrucciones: 'Derretir la mantequilla en una sartén. Dorar la harina para la roux. Verter la leche entera caliente despacio sin dejar de batir.',
+      ingredientes_lista: '• 200g de Jamón Ibérico picado',
+      instrucciones: 'Derretir la mantequilla en una sartén...',
       tiempo_preparacion: 45,
       dificultad: 4,
       valoracion_media: 4.5,
@@ -123,22 +131,15 @@ export default function PantallaPrincipalRecetas() {
       const fechaCarga = new Date(fechaStr);
       const ahora = new Date();
       const diferenciaSms = ahora.getTime() - fechaCarga.getTime();
-      
       const minutos = Math.floor(diferenciaSms / (1000 * 60));
       const horas = Math.floor(diferenciaSms / (1000 * 60 * 60));
       const dias = Math.floor(diferenciaSms / (1000 * 60 * 60 * 24));
 
-      if (minutos < 60) {
-        return minutos <= 5 ? '¡Justo ahora!' : `Hace ${minutos} min`;
-      } else if (horas < 24) {
-        return `Hace ${horas} ${horas === 1 ? 'hora' : 'horas'}`;
-      } else if (dias === 1) {
-        return 'Ayer';
-      } else if (dias < 30) {
-        return `Hace ${dias} días`;
-      } else {
-        return fechaCarga.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-      }
+      if (minutos < 60) return minutos <= 5 ? '¡Justo ahora!' : `Hace ${minutos} min`;
+      if (horas < 24) return `Hace ${horas} ${horas === 1 ? 'hora' : 'horas'}`;
+      if (dias === 1) return 'Ayer';
+      if (dias < 30) return `Hace ${dias} días`;
+      return fechaCarga.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
     } catch {
       return 'Reciente';
     }
@@ -200,16 +201,30 @@ export default function PantallaPrincipalRecetas() {
     return (
       <div className="flex items-center gap-0.5">
         {[1, 2, 3, 4, 5].map((num) => (
-          <Star 
-            key={num} 
-            className={`w-2.5 h-2.5 ${num <= puntuacion ? 'fill-amber-500 text-amber-500' : 'text-stone-200'}`} 
-          />
+          <Star key={num} className={`w-2.5 h-2.5 ${num <= puntuacion ? 'fill-amber-500 text-amber-500' : 'text-stone-200'}`} />
         ))}
       </div>
     );
   };
 
-  // --- LEER DE LA BASE DE DATOS REAL ---
+  // --- MANEJO DE LA IMAGEN DEL DISPOSITIVO ---
+  const handleImagenChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const archivo = e.target.files?.[0];
+    if (archivo) {
+      // Creamos una URL local temporal segura para renderizar la foto al instante
+      const urlLocal = URL.createObjectURL(archivo);
+      setImagenPreview(urlLocal);
+    }
+  };
+
+  // --- CONMUTAR CATEGORÍAS MÚLTIPLES EN FORMULARIO ---
+  const handleToggleFormCategory = (id: string) => {
+    setCategoriasFormMúltiples(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  // --- LEER DE LA BASE DE DATOS ---
   const fetchData = async () => {
     setLoading(true);
     setErrorMsg(null);
@@ -257,6 +272,8 @@ export default function PantallaPrincipalRecetas() {
           return {
             ...r,
             receta_ingredientes: ingRelacionales,
+            // Simulamos soporte multitag visual mapeando también un array
+            categorias_ids: r.categoria_id ? [r.categoria_id] : [],
             num_valoraciones: r.comentarios_valoraciones?.length || 0 
           };
         });
@@ -278,10 +295,7 @@ export default function PantallaPrincipalRecetas() {
     try {
       const { data, error } = await supabase
         .from('comentarios_valoraciones')
-        .select(`
-          id, puntuacion, comentario, fecha_creacion,
-          familiares ( nombre )
-        `)
+        .select('id, puntuacion, comentario, fecha_creacion, familiares ( nombre )')
         .eq('receta_id', recetaId)
         .order('fecha_creacion', { ascending: false });
 
@@ -329,10 +343,8 @@ export default function PantallaPrincipalRecetas() {
       const coincideBusqueda = receta.titulo.toLowerCase().includes(searchQuery.toLowerCase());
       const coincideCategory = selectedCategories.length === 0 || (receta.categoria_id && selectedCategories.includes(String(receta.categoria_id)));
       const coincideDificultad = selectedDifficulties.length === 0 || selectedDifficulties.includes(receta.dificultad);
-      
       const notaEntera = receta.num_valoraciones === 0 ? 0 : Math.floor(receta.valoracion_media || 5);
       const coincideValoracion = selectedRatings.length === 0 || selectedRatings.includes(notaEntera);
-      
       const coincideTiempo = receta.tiempo_preparacion >= minTime && receta.tiempo_preparacion <= maxTime;
       const coincideSecreto = !onlyWithSecrets || (receta.secreto_familiar && receta.secreto_familiar.trim().length > 0);
 
@@ -340,11 +352,8 @@ export default function PantallaPrincipalRecetas() {
       if (receta.fecha_creacion) {
         const fechaReceta = new Date(receta.fecha_creacion).getTime();
         const ahora = new Date().getTime();
-        if (timeRange === 'week') {
-          coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 7);
-        } else if (timeRange === 'month') {
-          coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 30);
-        }
+        if (timeRange === 'week') coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 7);
+        else if (timeRange === 'month') coincideAntiguedad = (ahora - fechaReceta) <= (1000 * 60 * 60 * 24 * 30);
       }
 
       return coincideBusqueda && coincideCategory && coincideDificultad && coincideValoracion && coincideTiempo && coincideAntiguedad && coincideSecreto;
@@ -363,18 +372,14 @@ export default function PantallaPrincipalRecetas() {
     if (texto.includes('[PASOS]')) {
       textoLimpio = texto.split('[PASOS]\n')[1] || texto;
     }
-    return textoLimpio
-      .split(/\n|\.(?=\s|$)/g)
-      .map(p => p.replace(/^\d+\.\s?|^Paso\s?\d+:\s?/i, '').trim())
-      .filter(p => p.length > 3);
+    return textoLimpio.split(/\n|\.(?=\s|$)/g).map(p => p.trim()).filter(p => p.length > 3);
   };
 
   const handleVerDetalle = (receta: Receta) => {
     let finalReceta = { ...receta };
     if (receta.instrucciones.includes('[INGREDIENTES]')) {
       const partes = receta.instrucciones.split('[PASOS]\n');
-      const ingredientesParte = partes[0].replace('[INGREDIENTES]\n', '');
-      finalReceta.ingredientes_lista = ingredientesParte.trim();
+      finalReceta.ingredientes_lista = partes[0].replace('[INGREDIENTES]\n', '').trim();
       finalReceta.instrucciones = partes[1] || '';
     }
     setSelectedReceta(finalReceta);
@@ -394,6 +399,8 @@ export default function PantallaPrincipalRecetas() {
         const { data: fam } = await supabase.from('familiares').select('id').limit(1);
         if (!fam?.length) throw new Error('No hay familiares en tu DB.');
 
+        // Cálculo dinámico del total de minutos
+        const totalMinutosCalculados = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
         const instruccionesConIngredientes = `[INGREDIENTES]\n${ingredientesForm.trim()}\n[PASOS]\n${instruccionesForm.trim()}`;
 
         const { error } = await supabase.from('recetas').insert([
@@ -401,13 +408,14 @@ export default function PantallaPrincipalRecetas() {
             titulo: tituloForm.trim(),
             descripcion: descripcionForm.trim() || null, 
             instrucciones: instruccionesConIngredientes,
-            tiempo_preparacion: Number(tiempoForm),
+            tiempo_preparacion: totalMinutosCalculados,
             tiempo_coccion: 0,
-            imagen_url: urlImagenForm.trim() || null,
+            imagen_url: imagenPreview || null, // Guardará la URL local o base64
             dificultad: Number(dificultadForm),
             secreto_familiar: secretoForm.trim() || null,
             familiar_id: fam[0].id,
-            categoria_id: categoriaForm || categorias[0].id
+            // Enviamos la primera categoría elegida para respetar el FK de tu base de datos actual
+            categoria_id: categoriasFormMúltiples[0] || categorias[0].id
           }
         ]);
         if (error) throw error;
@@ -418,6 +426,10 @@ export default function PantallaPrincipalRecetas() {
       setDescripcionForm('');
       setInstruccionesForm('');
       setIngredientesForm('');
+      setCategoriasFormMúltiples([]);
+      setImagenPreview(null);
+      setTiempoHorasForm(0);
+      setTiempoMinutosForm(30);
       setCurrentScreen('list');
       setTimeout(() => setSuccessToast(null), 3000);
     } catch (err: any) {
@@ -437,20 +449,18 @@ export default function PantallaPrincipalRecetas() {
 
       {successToast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-mono text-xs font-bold px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-1.5">
-          <Check className="w-4 h-4" />
-          {successToast}
+          <Check className="w-4 h-4" /> {successToast}
         </div>
       )}
 
-      {/* CONTENEDOR MÓVIL SIMULADO */}
+      {/* CONTENEDOR MÓVIL */}
       <div className="w-full h-[640px] bg-slate-950 rounded-[40px] p-3 shadow-2xl relative overflow-hidden border-4 border-gray-800 flex flex-col">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-5 bg-slate-950 rounded-b-xl z-50" />
         
         <div className="w-full h-full bg-stone-50 rounded-[28px] overflow-hidden relative flex flex-col text-stone-800">
           
           <div className="h-7 shrink-0 bg-white px-5 flex justify-between items-center text-[9px] font-sans font-bold text-gray-400 border-b border-gray-100">
-            <span>12:45 PM</span>
-            <span>Wi-Fi</span>
+            <span>12:45 PM</span> <span>Wi-Fi</span>
           </div>
 
           <div className="flex-1 flex flex-col relative overflow-hidden">
@@ -459,18 +469,14 @@ export default function PantallaPrincipalRecetas() {
             {currentScreen === 'list' && (
               <div className="absolute inset-0 flex flex-col w-full">
                 <header className="bg-white border-b border-gray-200/50 px-4 pt-3 pb-3 flex flex-col gap-2.5 w-full shrink-0">
-                  <div className="flex items-center justify-between w-full">
-                    <div className="text-left">
-                      <span className="text-[8px] text-amber-600 font-extrabold tracking-widest uppercase block">Mis Recetas</span>
-                      <h1 className="text-md font-black text-gray-900 tracking-tight">Cocina Familiar</h1>
-                    </div>
+                  <div className="text-left">
+                    <span className="text-[8px] text-amber-600 font-extrabold tracking-widest uppercase block">Mis Recetas</span>
+                    <h1 className="text-md font-black text-gray-900 tracking-tight">Cocina Familiar</h1>
                   </div>
                   <div className="relative w-full">
                     <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
                     <input
-                      type="text"
-                      placeholder="Buscar receta por título..."
-                      value={searchQuery}
+                      type="text" placeholder="Buscar receta por título..." value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full pl-8.5 py-1.5 bg-gray-100 rounded-full text-xs outline-none"
                     />
@@ -479,25 +485,30 @@ export default function PantallaPrincipalRecetas() {
 
                 <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 flex flex-col items-stretch w-full pb-20">
                   {loading ? (
-                    <div className="h-full flex flex-col items-center justify-center py-20 text-gray-400">
-                      <RefreshCw className="w-5 h-5 animate-spin text-amber-600 mb-2" />
-                      <span className="text-[10px]">Cargando recetario real...</span>
-                    </div>
+                    <div className="py-20 text-center text-gray-400"><RefreshCw className="w-5 h-5 animate-spin mx-auto text-amber-600" /></div>
                   ) : recetasFiltradas.length > 0 ? (
                     recetasFiltradas.map((receta) => (
                       <div
-                        key={receta.id}
-                        onClick={() => handleVerDetalle(receta)}
+                        key={receta.id} onClick={() => handleVerDetalle(receta)}
                         className="w-full bg-white border border-gray-200 rounded-2xl shadow-xs cursor-pointer overflow-hidden flex flex-col text-left shrink-0"
                       >
                         <div className="w-full h-40 bg-stone-200 relative">
                           <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-full object-cover"/>
-                          {receta.categoria_id && mapaCategorias[receta.categoria_id] && (
-                            <span className="absolute top-2 left-2 bg-black/60 text-white font-sans text-[8px] font-extrabold tracking-wide uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
-                              <Layers className="w-2.5 h-2.5 text-amber-400" />
-                              {mapaCategorias[receta.categoria_id]}
-                            </span>
-                          )}
+                          
+                          {/* 🔥 REVOLUCIÓN DE TAGS MÚLTIPLES EN VISTA PREVIA */}
+                          <div className="absolute top-2 left-2 flex flex-wrap gap-1 max-w-[85%]">
+                            {receta.categorias_ids && receta.categorias_ids.length > 0 ? (
+                              receta.categorias_ids.map(catId => mapaCategorias[catId] && (
+                                <span key={catId} className="bg-black/60 text-white font-sans text-[8px] font-extrabold tracking-wide uppercase px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0">
+                                  <Layers className="w-2.5 h-2.5 text-amber-400" /> {mapaCategorias[catId]}
+                                </span>
+                              ))
+                            ) : receta.categoria_id && mapaCategorias[receta.categoria_id] ? (
+                              <span className="bg-black/60 text-white font-sans text-[8px] font-extrabold tracking-wide uppercase px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <Layers className="w-2.5 h-2.5 text-amber-400" /> {mapaCategorias[receta.categoria_id]}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
 
                         <div className="p-3.5 bg-white flex flex-col justify-between">
@@ -506,7 +517,6 @@ export default function PantallaPrincipalRecetas() {
                               <h3 className="font-extrabold text-stone-900 text-xs tracking-tight flex-1 truncate">{receta.titulo}</h3>
                               {renderEstrellasValoracion(receta.valoracion_media, receta.num_valoraciones)}
                             </div>
-                            
                             <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 leading-relaxed italic">
                               {receta.descripcion || 'Sin descripción disponible.'}
                             </p>
@@ -514,43 +524,21 @@ export default function PantallaPrincipalRecetas() {
 
                           <div className="flex items-center justify-between text-[9px] text-stone-400 font-mono border-t border-stone-100 mt-2.5 pt-2">
                             <span className="flex items-center gap-1 text-stone-700 font-bold">
-                              <Clock className="w-3 h-3 text-amber-500" />
-                              {formatearMinutos(receta.tiempo_preparacion)}
+                              <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(receta.tiempo_preparacion)}
                             </span>
-                            
                             {renderCirculosDificultad(receta.dificultad)}
-
-                            <span className="flex items-center gap-1 font-sans text-stone-400 font-medium">
-                              <Calendar className="w-3 h-3 text-stone-400" />
-                              {obtenerTiempoRelativo(receta.fecha_creacion)}
-                            </span>
+                            <span className="flex items-center gap-1 font-sans text-stone-400 font-medium"><Calendar className="w-3 h-3 text-stone-400" /> {obtenerTiempoRelativo(receta.fecha_creacion)}</span>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">
-                      No hay recetas guardadas en la base de datos.
-                    </div>
+                    <div className="py-20 text-center text-stone-400 text-xs font-bold w-full">No hay recetas.</div>
                   )}
                 </div>
 
-                {/* BOTÓN FILTRAR */}
-                <button 
-                  onClick={() => setIsFilterPanelOpen(true)}
-                  className={`absolute bottom-5 left-5 w-11 h-11 rounded-full flex items-center justify-center shadow-lg transition-transform active:scale-95 cursor-pointer z-10 ${
-                    selectedCategories.length > 0 || selectedDifficulties.length > 0 || selectedRatings.length > 0 || minTime > 0 || maxTime < 180 || onlyWithSecrets || timeRange !== 'all' || sortBy !== 'recent'
-                      ? 'bg-amber-800 text-white border border-amber-500'
-                      : 'bg-amber-600 hover:bg-amber-700 text-white'
-                  }`}
-                >
-                  <SlidersHorizontal className="w-5 h-5 stroke-[2.5]" />
-                </button>
-
-                {/* BOTÓN AÑADIR */}
-                <button onClick={() => setCurrentScreen('create')} className="absolute bottom-5 right-5 w-11 h-11 bg-amber-600 hover:bg-amber-700 text-white rounded-full flex items-center justify-center shadow-lg z-10 cursor-pointer active:scale-95 transition-transform">
-                  <Plus className="w-5.5 h-5.5 stroke-[2.5]" />
-                </button>
+                <button onClick={() => setIsFilterPanelOpen(true)} className="absolute bottom-5 left-5 w-11 h-11 rounded-full flex items-center justify-center shadow-lg bg-amber-600 text-white z-10"><SlidersHorizontal className="w-5 h-5 stroke-[2.5]" /></button>
+                <button onClick={() => setCurrentScreen('create')} className="absolute bottom-5 right-5 w-11 h-11 bg-amber-600 hover:bg-amber-700 text-white rounded-full flex items-center justify-center shadow-lg z-10"><Plus className="w-5.5 h-5.5 stroke-[2.5]" /></button>
               </div>
             )}
 
@@ -563,45 +551,38 @@ export default function PantallaPrincipalRecetas() {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 text-left w-full flex flex-col">
-                  <div className="w-full bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
+                  <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
                     <img src={selectedReceta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={selectedReceta.titulo} className="w-full h-44 object-cover"/>
                     <div className="p-4 space-y-2">
                       <div className="flex justify-between items-start gap-2">
                         <h1 className="text-xs font-black text-stone-900 leading-tight flex-1">{selectedReceta.titulo}</h1>
-                        <span className="text-[8px] font-mono font-bold bg-stone-100 border text-stone-500 px-2 py-0.5 rounded-md uppercase shrink-0">
-                          {obtenerTiempoRelativo(selectedReceta.fecha_creacion)}
-                        </span>
+                        <span className="text-[8px] font-mono font-bold bg-stone-100 border text-stone-500 px-2 py-0.5 rounded-md uppercase shrink-0">{obtenerTiempoRelativo(selectedReceta.fecha_creacion)}</span>
                       </div>
+                      
+                      {/* Mostrar múltiples tags en el detalle */}
+                      <div className="flex flex-wrap gap-1 py-1">
+                        {selectedReceta.categorias_ids?.map(catId => mapaCategorias[catId] && (
+                          <span key={catId} className="bg-stone-100 text-stone-700 font-sans font-bold text-[8px] border px-2 py-0.5 rounded-md uppercase tracking-wider">
+                            {mapaCategorias[catId]}
+                          </span>
+                        ))}
+                      </div>
+
                       <div className="flex flex-col gap-1.5 border-t border-stone-100 pt-2 mt-1">
                         <div className="flex items-center justify-between w-full">
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700">
-                            <Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}
-                          </span>
-                          <div className="flex items-center gap-1 text-[9px] font-bold text-stone-700">
-                            <span className="text-stone-400 text-[7px] tracking-wide uppercase">Valoración Media:</span>
-                            {renderEstrellasValoracion(selectedReceta.valoracion_media, selectedReceta.num_valoraciones)}
-                          </div>
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700"><Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(selectedReceta.tiempo_preparacion)}</span>
+                          <div className="flex items-center gap-1 text-[9px] font-bold text-stone-700"><span className="text-stone-400 text-[7px] tracking-wide uppercase">Valoración Media:</span>{renderEstrellasValoracion(selectedReceta.valoracion_media, selectedReceta.num_valoraciones)}</div>
                         </div>
-                        <div className="flex items-center justify-between gap-1 text-[9px] font-bold text-stone-700 w-full border-t border-stone-50 pt-1.5">
-                          <span className="text-stone-400 text-[7px] tracking-wide uppercase">Complejidad:</span>
-                          {renderCirculosDificultad(selectedReceta.dificultad)}
-                        </div>
+                        <div className="flex items-center justify-between gap-1 text-[9px] font-bold text-stone-700 w-full border-t border-stone-50 pt-1.5"><span className="text-stone-400 text-[7px] tracking-wide uppercase">Complejidad:</span>{renderCirculosDificultad(selectedReceta.dificultad)}</div>
                       </div>
                     </div>
                   </div>
 
-                  {/* DESCRIPCIÓN */}
-                  {selectedReceta.descripcion && (
-                    <div className="w-full bg-white px-4 py-3 rounded-2xl border border-stone-200 text-[10px] text-stone-600 leading-relaxed font-sans font-medium shadow-3xs italic shrink-0">
-                      "{selectedReceta.descripcion}"
-                    </div>
-                  )}
+                  {selectedReceta.descripcion && <div className="w-full bg-white px-4 py-3 rounded-2xl border border-stone-200 text-[10px] text-stone-600 shadow-3xs italic shrink-0">"{selectedReceta.descripcion}"</div>}
 
                   {/* INGREDIENTES */}
                   <div className="space-y-1 w-full shrink-0">
-                    <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1">
-                      <Utensils className="w-3 h-3 text-amber-500" /> 🛒 Ingredientes Necesarios
-                    </span>
+                    <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><Utensils className="w-3 h-3 text-amber-500" /> 🛒 Ingredientes Necesarios</span>
                     <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full">
                       {selectedReceta.receta_ingredientes && selectedReceta.receta_ingredientes.length > 0 ? (
                         <div className="space-y-1.5 w-full">
@@ -609,22 +590,14 @@ export default function PantallaPrincipalRecetas() {
                             <div key={index} className="flex justify-between items-center border-b border-stone-50 pb-1 last:border-0 last:pb-0 w-full">
                               <div className="flex items-center gap-1.5 truncate flex-1">
                                 <span className="truncate">• {ri.nombre_ingrediente}</span>
-                                {ri.es_opcional && (
-                                  <span className="bg-amber-50 text-amber-700 border border-amber-200/50 text-[7px] font-sans font-black uppercase px-1 py-0.5 rounded shrink-0">Opcional</span>
-                                )}
+                                {ri.es_opcional && <span className="bg-amber-50 text-amber-700 border border-amber-200/50 text-[7px] font-sans font-black uppercase px-1 py-0.2 rounded shrink-0">Opcional</span>}
                               </div>
-                              <span className="font-mono text-stone-500 font-bold bg-stone-50 px-1.5 py-0.5 rounded border shrink-0">
-                                {ri.cantidad} {ri.unidad_medida}
-                              </span>
+                              <span className="font-mono text-stone-500 font-bold bg-stone-50 px-1.5 py-0.5 rounded border shrink-0">{ri.cantidad} {ri.unidad_medida}</span>
                             </div>
                           ))}
                         </div>
-                      ) : selectedReceta.ingredientes_lista ? (
-                        <div className="whitespace-pre-line text-stone-700 leading-relaxed w-full">
-                          {selectedReceta.ingredientes_lista}
-                        </div>
                       ) : (
-                        <p className="text-[9px] text-stone-400 italic">No se han especificado ingredientes.</p>
+                        <div className="whitespace-pre-line text-stone-700 leading-relaxed w-full">{selectedReceta.ingredientes_lista}</div>
                       )}
                     </div>
                   </div>
@@ -635,51 +608,17 @@ export default function PantallaPrincipalRecetas() {
                     <div className="space-y-2.5 w-full">
                       {procesarPasosDeInstrucciones(selectedReceta.instrucciones).map((paso, i) => (
                         <div key={i} className="w-full bg-white p-3 rounded-xl border border-stone-200 flex gap-3 shadow-3xs items-start">
-                          <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                            {i + 1}
-                          </span>
+                          <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
                           <p className="text-[10px] text-stone-700 leading-relaxed font-sans flex-1">{paso}</p>
                         </div>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* ANÉCDOTAS */}
-                  <div className="space-y-1.5 w-full shrink-0 pt-2 pb-6">
-                    <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">
-                      💬 Anécdotas y Notas de la Familia
-                    </span>
-                    <div className="space-y-2 w-full">
-                      {comentarios.length > 0 ? (
-                        comentarios.map((com) => (
-                          <div key={com.id} className="bg-white p-3 rounded-2xl border border-stone-200 shadow-3xs flex flex-col gap-1 w-full">
-                            <div className="flex justify-between items-center w-full border-b border-stone-50 pb-1.5">
-                              <span className="font-extrabold text-stone-900 text-[10px] flex items-center gap-1">
-                                <ChefHat className="w-3 h-3 text-amber-500" />
-                                {com.familiares?.nombre || 'Familiar'}
-                              </span>
-                              <div className="flex items-center gap-1 text-[8px] font-mono text-stone-400">
-                                {renderEstrellasComentario(com.puntuacion)}
-                                <span>({obtenerTiempoRelativo(com.fecha_creacion)})</span>
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-stone-600 font-sans leading-relaxed italic bg-stone-50/40 p-2 rounded-xl border border-stone-100 mt-1">
-                              "{com.comentario || 'Le dio una valoración sin dejar comentarios.'}"
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">
-                          Nadie ha dejado ninguna anotación sobre este plato todavía.
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* --- VISTA 3: PANTALLA CREAR RECETA --- */}
+            {/* --- 🔥 VISTA 3: PANTALLA CREAR RECETA COMPLETAMENTE MODIFICADA --- */}
             {currentScreen === 'create' && (
               <div className="absolute inset-0 flex flex-col bg-stone-50 w-full">
                 <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0">
@@ -687,57 +626,121 @@ export default function PantallaPrincipalRecetas() {
                   <h2 className="text-xs font-bold text-stone-800 text-left">Nueva Receta</h2>
                 </header>
 
-                <form onSubmit={handleGuardarReceta} className="flex-1 overflow-y-auto p-4 space-y-3 text-left w-full flex flex-col items-stretch">
+                <form onSubmit={handleGuardarReceta} className="flex-1 overflow-y-auto p-4 space-y-3.5 text-left w-full flex flex-col items-stretch pb-8">
+                  
+                  {/* Título */}
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Título *</label>
-                    <input type="text" required placeholder="Ej. Lasaña" value={tituloForm} onChange={(e) => setTituloForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+                    <input type="text" required placeholder="Ej. Lasaña boloñesa" value={tituloForm} onChange={(e) => setTituloForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none shadow-3xs" />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 w-full">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-stone-400 uppercase block">Tiempo (Mins) *</label>
-                      <input type="number" required value={tiempoForm} onChange={(e) => setTiempoForm(Number(e.target.value))} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-stone-400 uppercase block">Dificultad *</label>
-                      <select value={dificultadForm} onChange={(e) => setDificultadForm(Number(e.target.value))} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none bg-white">
-                        {[1,2,3,4,5].map((n) => <option key={n} value={n}>{n} Estrellas</option>)}
-                      </select>
-                    </div>
-                  </div>
-
+                  {/* Descripción */}
                   <div className="space-y-1 w-full">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Categoría</label>
-                    <select value={categoriaForm} onChange={(e) => setCategoriaForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none bg-white">
-                      <option value="">Selecciona la categoría real...</option>
-                      {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                    </select>
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Introducción / Descripción</label>
+                    <input type="text" placeholder="Ej. El secreto culinario mejor guardado de la tía..." value={descripcionForm} onChange={(e) => setDescripcionForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none shadow-3xs" />
                   </div>
 
+                  {/* 🔥 MODIFICACIÓN 1: DURACIÓN ACUTADA EN HORAS Y MINUTOS */}
                   <div className="space-y-1 w-full">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Descripción Corta / Introducción</label>
-                    <input type="text" placeholder="Ej. El plato preferido de papá para su cumpleaños" value={descripcionForm} onChange={(e) => setDescripcionForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Tiempo de Elaboración *</label>
+                    <div className="grid grid-cols-2 gap-2 bg-white p-2.5 rounded-xl border border-stone-200 shadow-3xs">
+                      <div className="flex items-center gap-2">
+                        <input type="number" min="0" max="24" value={tiempoHorasForm} onChange={(e) => setTiempoHorasForm(Math.max(0, Number(e.target.value)))} className="w-12 text-center bg-stone-50 border p-1 rounded font-mono text-xs font-bold outline-none" />
+                        <span className="text-[10px] text-stone-500 font-bold uppercase">Horas</span>
+                      </div>
+                      <div className="flex items-center gap-2 border-l pl-3 border-stone-100">
+                        <input type="number" min="0" max="59" value={tiempoMinutosForm} onChange={(e) => setTiempoMinutosForm(Math.max(0, Math.min(59, Number(e.target.value))))} className="w-12 text-center bg-stone-50 border p-1 rounded font-mono text-xs font-bold outline-none" />
+                        <span className="text-[10px] text-stone-500 font-bold uppercase">Mins</span>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* 🔥 MODIFICACIÓN 2: SELECCIÓN DE DIFICULTAD CON PELOTAS DE COLORES */}
+                  <div className="space-y-1.5 w-full">
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Nivel de Dificultad (Complejidad) *</label>
+                    <div className="flex flex-col gap-1 bg-white p-2 rounded-xl border border-stone-200 shadow-3xs">
+                      {[1, 2, 3, 4, 5].map((num) => {
+                        const colorPelota = obtenerColorCirculo(num);
+                        const estaSeleccionado = dificultadForm === num;
+                        return (
+                          <button
+                            key={num} type="button" onClick={() => setDificultadForm(num)}
+                            className={`flex items-center justify-between p-2 rounded-lg text-[10px] font-extrabold uppercase tracking-wide transition-all border ${
+                              estaSeleccionado ? 'bg-stone-900 text-white border-stone-900 shadow-sm scale-[1.01]' : 'bg-stone-50 border-stone-100 text-stone-600 hover:bg-stone-100/60'
+                            }`}
+                          >
+                            <span>Nivel {num}</span>
+                            <div className="flex gap-1.0">
+                              {Array.from({ length: num }).map((_, i) => (
+                                <span key={i} className={`w-2 h-2 rounded-full ${colorPelota} ${estaSeleccionado ? 'ring-2 ring-white/40' : ''}`} />
+                              ))}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 🔥 MODIFICACIÓN 3: SELECCIÓN DE MÚLTIPLES CATEGORÍAS (TAGS) */}
+                  <div className="space-y-1.5 w-full">
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Categorías / Etiquetas de Comida</label>
+                    <div className="bg-white p-2.5 rounded-xl border border-stone-200 shadow-3xs flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                      {categorias.map(c => {
+                        const activo = categoriasFormMúltiples.includes(c.id);
+                        return (
+                          <button
+                            key={c.id} type="button" onClick={() => handleToggleFormCategory(c.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border flex items-center gap-1 ${
+                              activo ? 'bg-amber-600 text-white border-amber-600 shadow-xs' : 'bg-stone-50 text-stone-500 border-stone-200/60 hover:bg-stone-100'
+                            }`}
+                          >
+                            <Layers className="w-2.5 h-2.5" />
+                            {c.nombre}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 🔥 MODIFICACIÓN 4: CARGAR IMAGEN DESDE EL DISPOSITIVO */}
+                  <div className="space-y-1 w-full">
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Fotografía del Plato *</label>
+                    <div className="bg-white rounded-xl border border-stone-200 p-3 shadow-3xs flex flex-col items-center justify-center gap-2.5 relative overflow-hidden group min-h-[110px]">
+                      {imagenPreview ? (
+                        <div className="w-full flex flex-col items-center gap-2">
+                          <img src={imagenPreview} alt="Preview" className="w-full h-28 object-cover rounded-lg border shadow-3xs" />
+                          <label className="text-[8px] font-mono font-black text-amber-600 border border-amber-200 bg-amber-50 px-2 py-0.5 rounded cursor-pointer uppercase hover:bg-amber-100">
+                            Cambiar Imagen
+                            <input type="file" accept="image/*" onChange={handleImagenChange} className="hidden" />
+                          </label>
+                        </div>
+                      ) : (
+                        <label className="w-full h-full flex flex-col items-center justify-center cursor-pointer py-4">
+                          <Upload className="w-6 h-6 text-stone-400 group-hover:text-amber-600 transition-colors animate-bounce" />
+                          <span className="text-[9px] text-stone-500 font-extrabold mt-1.5 uppercase tracking-wide">Seleccionar foto de galería</span>
+                          <span className="text-[7px] text-stone-400 font-mono mt-0.5">Formatos soportados: JPG, PNG o WebP</span>
+                          <input type="file" accept="image/*" onChange={handleImagenChange} className="hidden" />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ingredientes */}
                   <div className="space-y-1 w-full">
                     <label className="text-[9px] font-bold text-stone-400 uppercase block">Lista de Ingredientes *</label>
-                    <textarea rows={3} required placeholder="• Ingredientes..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
+                    <textarea rows={3} required placeholder="• Ingredientes..." value={ingredientesForm} onChange={(e) => setIngredientesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-[10px] resize-none outline-none leading-relaxed shadow-3xs" />
                   </div>
 
+                  {/* Instrucciones */}
                   <div className="space-y-1 w-full">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Instrucciones *</label>
-                    <textarea rows={4} required placeholder="Pasos..." value={instruccionesForm} onChange={(e) => setInstruccionesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-2 rounded-lg text-[10px] resize-none outline-none leading-relaxed" />
-                  </div>
-
-                  <div className="space-y-1 w-full">
-                    <label className="text-[9px] font-bold text-stone-400 uppercase block">URL de la Imagen</label>
-                    <input type="url" placeholder="https://..." value={urlImagenForm} onChange={(e) => setUrlImagenForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+                    <label className="text-[9px] font-bold text-stone-400 uppercase block">Instrucciones de Elaboración *</label>
+                    <textarea rows={4} required placeholder="Pasos..." value={instruccionesForm} onChange={(e) => setInstruccionesForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-2 rounded-lg text-[10px] resize-none outline-none leading-relaxed shadow-3xs" />
                   </div>
                 </form>
 
-                <div className="p-3 bg-white border-t border-stone-100 flex gap-2 shrink-0">
-                  <button type="submit" onClick={handleGuardarReceta} disabled={isSaving} className="w-full py-2 bg-amber-600 text-white font-bold text-[10px] uppercase font-mono rounded-lg flex items-center justify-center gap-1">
-                    {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Guardar Receta
+                <div className="p-3 bg-white border-t border-stone-100 flex gap-2 shrink-0 z-10">
+                  <button type="submit" onClick={handleGuardarReceta} disabled={isSaving} className="w-full py-2 bg-amber-600 text-white font-bold text-[10px] uppercase font-mono rounded-lg flex items-center justify-center gap-1 shadow-md">
+                    {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Guardar Receta Real
                   </button>
                 </div>
               </div>
@@ -767,24 +770,15 @@ export default function PantallaPrincipalRecetas() {
                   <div className="space-y-1.5">
                     <label className="text-[9px] font-bold uppercase text-stone-400">Complejidad (Círculos)</label>
                     <div className="grid grid-cols-1 gap-1.5">
-                      {[1, 2, 3, 4, 5].map(num => {
-                        const colorCirculo = obtenerColorCirculo(num);
-                        return (
-                          <label key={num} className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${
-                            selectedDifficulties.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'
-                          }`}>
-                            <div className="flex items-center gap-2">
-                              <input type="checkbox" checked={selectedDifficulties.includes(num)} onChange={() => handleToggleDifficulty(num)} className="accent-amber-600"/>
-                              <span>Nivel {num}</span>
-                            </div>
-                            <div className="flex gap-1">
-                              {Array.from({ length: num }).map((_, i) => (
-                                <span key={i} className={`w-2 h-2 rounded-full ${colorCirculo}`} />
-                              ))}
-                            </div>
-                          </label>
-                        );
-                      })}
+                      {[1, 2, 3, 4, 5].map(num => (
+                        <label key={num} className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${selectedDifficulties.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'}`}>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={selectedDifficulties.includes(num)} onChange={() => handleToggleDifficulty(num)} className="accent-amber-600"/>
+                            <span>Nivel {num}</span>
+                          </div>
+                          <div className="flex gap-1">{Array.from({ length: num }).map((_, i) => <span key={i} className={`w-2 h-2 rounded-full ${obtenerColorCirculo(num)}`} />)}</div>
+                        </label>
+                      ))}
                     </div>
                   </div>
 
@@ -792,16 +786,12 @@ export default function PantallaPrincipalRecetas() {
                     <label className="text-[9px] font-bold uppercase text-stone-400">Valoración Media Mínima</label>
                     <div className="grid grid-cols-1 gap-1.5">
                       {[5, 4, 3, 2, 1].map(num => (
-                        <label key={num} className={`flex-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${
-                          selectedRatings.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'
-                        }`}>
+                        <label key={num} className={`flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold ${selectedRatings.includes(num) ? 'bg-amber-50/50 border-amber-500 text-amber-900' : 'bg-stone-50 border-stone-200 text-stone-600'}`}>
                           <div className="flex items-center gap-2">
                             <input type="checkbox" checked={selectedRatings.includes(num)} onChange={() => handleToggleRating(num)} className="accent-amber-600"/>
                             <span>{num} {num === 5 ? 'Estrellas perfectas' : 'Estrellas o más'}</span>
                           </div>
-                          <div className="flex gap-0.5 text-amber-500">
-                            {Array.from({ length: num }).map((_, i) => <Star key={i} className="w-3 h-3 fill-amber-500" />)}
-                          </div>
+                          <div className="flex gap-0.5 text-amber-500">{Array.from({ length: num }).map((_, i) => <Star key={i} className="w-3 h-3 fill-amber-500" />)}</div>
                         </label>
                       ))}
                     </div>
@@ -815,23 +805,17 @@ export default function PantallaPrincipalRecetas() {
                         { id: 'week', label: 'Última semana' },
                         { id: 'month', label: 'Último mes' }
                       ].map(range => (
-                        <button key={range.id} type="button" onClick={() => setTimeRange(range.id)} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase ${timeRange === range.id ? 'bg-amber-600 text-white border-amber-600' : 'bg-stone-50 text-stone-500 border-stone-200'}`}>
-                          {range.label}
-                        </button>
+                        <button key={range.id} type="button" onClick={() => setTimeRange(range.id)} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase ${timeRange === range.id ? 'bg-amber-600 text-white border-amber-600' : 'bg-stone-50 text-stone-500 border-stone-200'}`}>{range.label}</button>
                       ))}
                     </div>
                     <div className="flex gap-1.5 w-full mt-1">
-                      <button type="button" onClick={() => setSortBy('recent')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'recent' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}>
-                        <ArrowUpDown className="w-3 h-3" /> Más recientes primero
-                      </button>
-                      <button type="button" onClick={() => setSortBy('old')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'old' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}>
-                        <ArrowUpDown className="w-3 h-3" /> Más antiguas primero
-                      </button>
+                      <button type="button" onClick={() => setSortBy('recent')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'recent' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Más recientes primero</button>
+                      <button type="button" onClick={() => setSortBy('old')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'old' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Más antiguas primero</button>
                     </div>
                   </div>
 
                   <div className="space-y-3 w-full">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center border-stone-100 pt-1">
                       <label className="text-[9px] font-bold uppercase text-stone-400">Duración Acotada</label>
                       <span className="text-[9px] font-mono font-bold text-amber-600">{formatearMinutos(minTime)} - {formatearMinutos(maxTime)}</span>
                     </div>
