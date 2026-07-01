@@ -28,13 +28,13 @@ interface Props {
 export default function PanelFiltros({
   isOpen, onClose, categorias, selectedCategories, setSelectedCategories,
   selectedDifficulties, setSelectedDifficulties, selectedRatings, setSelectedRatings,
-  minTime, setMinTime, maxTime, setMaxTime, timeRange, setTimeRange, sortBy, setSortBy, onReset
-}: Props) {
+  minTime, setMinTime, maxTime, setMaxTime, timeRange, setTimeRange, sortBy, setSortBy, onReset }: Props) {
+  
   if (!isOpen) return null;
-
+  
   return (
-    <div className="absolute inset-0 bg-black/40 z-50 flex flex-col justify-end">
-      <div className="w-full max-h-[85%] bg-white rounded-t-3xl p-5 overflow-y-auto flex flex-col gap-4 text-left shadow-2xl">
+    <div onClick={onClose} className="absolute inset-0 bg-black/40 z-50 flex flex-col justify-end">
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-h-[85%] bg-white rounded-t-3xl p-5 overflow-y-auto flex flex-col gap-4 text-left shadow-2xl">
         <div className="flex justify-between items-center border-b border-stone-100 pb-2">
           <h2 className="text-xs font-black uppercase tracking-wider text-stone-500">Filtros de Recetas</h2>
           <button onClick={onClose} className="p-1 bg-stone-100 rounded-full"><X className="w-4 h-4" /></button>
@@ -55,7 +55,7 @@ export default function PanelFiltros({
 
         {/* Complejidad */}
         <div className="space-y-1.5">
-          <label className="text-[9px] font-bold uppercase text-stone-400">Complejidad (Círculos)</label>
+          <label className="text-[9px] font-bold uppercase text-stone-400">Complejidad (Circulos)</label>
           <div className="grid grid-cols-1 gap-1.5">
             {[1, 2, 3, 4, 5].map(num => (
               <label key={num} className="flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold bg-stone-50">
@@ -69,15 +69,15 @@ export default function PanelFiltros({
           </div>
         </div>
 
-        {/* Valoración Mínima */}
+        {/* Valoracion Minima */}
         <div className="space-y-1.5">
-          <label className="text-[9px] font-bold uppercase text-stone-400">Valoración Media Mínima</label>
+          <label className="text-[9px] font-bold uppercase text-stone-400">Valoracion Media Minima</label>
           <div className="grid grid-cols-1 gap-1.5">
             {[5, 4, 3, 2, 1].map(num => (
               <label key={num} className="flex items-center justify-between p-2 rounded-xl border cursor-pointer text-[10px] font-bold bg-stone-50">
                 <div className="flex items-center gap-2">
                   <input type="checkbox" checked={selectedRatings.includes(num)} onChange={() => setSelectedRatings(p => p.includes(num) ? p.filter(r => r !== num) : [...p, num])} className="accent-amber-600"/>
-                  <span>{num} {num === 5 ? 'Estrellas perfectas' : 'Estrellas o más'}</span>
+                  <span>{num} {num === 5 ? 'Estrellas perfectas' : 'Estrellas o mas'}</span>
                 </div>
                 <div className="flex gap-0.5 text-amber-500">{Array.from({ length: num }).map((_, i) => <Star key={i} className="w-3 h-3 fill-amber-500" />)}</div>
               </label>
@@ -85,26 +85,26 @@ export default function PanelFiltros({
           </div>
         </div>
 
-        {/* Antigüedad */}
+        {/* Antiguedad */}
         <div className="space-y-2">
-          <label className="text-[9px] font-bold uppercase text-stone-400">Antigüedad de las Recetas</label>
+          <label className="text-[9px] font-bold uppercase text-stone-400">Antiguedad de las Recetas</label>
           <div className="flex gap-1.5 w-full">
             {['all', 'week', 'month'].map(r => (
               <button key={r} type="button" onClick={() => setTimeRange(r)} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase ${timeRange === r ? 'bg-amber-600 text-white border-amber-600' : 'bg-stone-50 text-stone-500 border-stone-200'}`}>
-                {r === 'all' ? 'Cualquier fecha' : r === 'week' ? 'Última semana' : 'Último mes'}
+                {r === 'all' ? 'Cualquier fecha' : r === 'week' ? 'Ultima semana' : 'Ultimo mes'}
               </button>
             ))}
           </div>
           <div className="flex gap-1.5 w-full mt-1">
-            <button type="button" onClick={() => setSortBy('recent')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'recent' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Más recientes primero</button>
-            <button type="button" onClick={() => setSortBy('old')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'old' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Más antiguas primero</button>
+            <button type="button" onClick={() => setSortBy('recent')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'recent' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Mas recientes primero</button>
+            <button type="button" onClick={() => setSortBy('old')} className={`flex-1 py-1.5 text-[9px] font-bold rounded-lg border uppercase flex items-center justify-center gap-1 ${sortBy === 'old' ? 'bg-stone-900 text-white border-stone-900' : 'bg-white text-stone-600 border-stone-200'}`}><ArrowUpDown className="w-3 h-3" /> Mas antiguas primero</button>
           </div>
         </div>
 
-        {/* Duración Slider */}
+        {/* Duracion Slider */}
         <div className="space-y-3 w-full">
           <div className="flex justify-between items-center pt-1">
-            <label className="text-[9px] font-bold uppercase text-stone-400">Duración Acotada</label>
+            <label className="text-[9px] font-bold uppercase text-stone-400">Duracion Acotada</label>
             <span className="text-[9px] font-mono font-bold text-amber-600">{formatearMinutos(minTime)} - {formatearMinutos(maxTime)}</span>
           </div>
           <div className="space-y-3 bg-stone-50 p-3 rounded-xl border border-stone-200 w-full box-border">

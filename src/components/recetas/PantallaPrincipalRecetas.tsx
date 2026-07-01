@@ -5,7 +5,6 @@ import { Receta, Categoria, ComentarioFamiliar } from '../../types/recetas';
 import { obtenerColorCirculo } from '../../utils/recetasHelpers';
 import { Search, ChefHat, Bookmark, LogOut, RefreshCw } from 'lucide-react';
 
-// Importacion de modulos divididos
 import VistaLista from './VistaLista';
 import VistaDetalle from './VistaDetalle';
 import VistaCrear from './VistaCrear';
@@ -13,14 +12,13 @@ import PanelFiltros from './PanelFiltros';
 import VistaAuth from './VistaAuth'; 
 
 export default function PantallaPrincipalRecetas() {
-  // Control de sesion real de Supabase
   const [session, setSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState<boolean>(true);
 
   const [currentScreen, setCurrentScreen] = useState<'list' | 'detail' | 'create'>('list');
   const [selectedReceta, setSelectedReceta] = useState<Receta | null>(null);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'saved' | 'mine' | 'search'>('search');
+  const [activeTab, setActiveTab] = useState<'saved' | 'mine' | 'search'>('mine');
 
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -32,17 +30,15 @@ export default function PantallaPrincipalRecetas() {
     return local ? JSON.parse(local) : [];
   });
 
-  // Estados de filtros
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedDifficulties, setSelectedDifficulties] = useState<number[]>([]);
   const [selectedRatings, setSelectedRatings] = useState<number[]>([]);
   const [minTime, setMinTime] = useState<number>(0);
   const [maxTime, setMaxTime] = useState<number>(180);
-  const [timeRange, setTimeRange] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<string>( 'all');
   const [sortBy, setSortBy] = useState<'recent' | 'old'>('recent');
 
-  // Estados del formulario
   const [tituloForm, setTituloForm] = useState<string>('');
   const [descripcionForm, setDescripcionForm] = useState<string>('');
   const [ingredientesListForm, setIngredientesListForm] = useState<string[]>(['']);
@@ -61,7 +57,6 @@ export default function PantallaPrincipalRecetas() {
     localStorage.setItem('recetas_guardadas_familia', JSON.stringify(savedRecetasIds));
   }, [savedRecetasIds]);
 
-  // Escuchador de estado de autenticacion asincrono
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: activeSession } }) => {
       setSession(activeSession);
@@ -116,18 +111,31 @@ export default function PantallaPrincipalRecetas() {
         .order('fecha_creacion', { ascending: false });
 
       if (recs) {
-        const mapeadas = recs.map((r: any) => ({
-          ...r,
-          receta_ingredientes: r.receta_ingredientes?.map((ri: any) => ({
-            cantidad: Number(ri.cantidad || 0),
-            unidad_medida: ri.unidad_medida || 'unidades',
-            nombre_ingrediente: ri.ingredientes?.nombre || 'Ingrediente',
-            es_opcional: !!ri.es_opcional
-          })) || [],
-          categorias_ids: r.categoria_id ? [r.categoria_id] : [],
-          num_valoraciones: r.comentarios_valoraciones?.length || 0,
-          autor_nombre: r.familiares?.nombre || 'Familiar'
-        }));
+        const mapeadas = recs.map((r: any) => {
+          let finalCategories: string[] = r.categoria_id ? [r.categoria_id] : [];
+          const inst = r.instrucciones || '';
+          
+          if (inst.includes('[CATEGORIAS]')) {
+            const partesCat = inst.split('[INGREDIENTES]');
+            const bloqueCat = partesCat[0].replace('[CATEGORIAS]', '').trim();
+            if (bloqueCat) {
+              finalCategories = bloqueCat.split(',').filter((id: string) => id.length > 0);
+            }
+          }
+
+          return {
+            ...r,
+            receta_ingredientes: r.receta_ingredientes?.map((ri: any) => ({
+              cantidad: Number(ri.cantidad || 0),
+              unidad_medida: ri.unidad_medida || 'unidades',
+              nombre_ingrediente: ri.ingredientes?.nombre || 'Ingrediente',
+              es_opcional: !!ri.es_opcional
+            })) || [],
+            categorias_ids: finalCategories,
+            num_valoraciones: r.comentarios_valoraciones?.length || 0,
+            autor_nombre: r.familiares?.nombre || 'Familiar'
+          };
+        });
         setRecetas(mapeadas);
       }
     } catch (err) {
@@ -157,7 +165,6 @@ export default function PantallaPrincipalRecetas() {
     if (session?.user) fetchData();
   }, [session, activeTab]);
 
-  // RESTAURADO: Transformacion de categorias indexadas por ID
   const mapaCategorias = useMemo(() => {
     const obj: Record<string, string> = {};
     categorias.forEach(c => { obj[c.id] = c.nombre; });
@@ -178,13 +185,15 @@ export default function PantallaPrincipalRecetas() {
       const totalMinutosCalculados = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
       const ingredientesString = ingFiltrados.map(i => `- ${i.trim()}`).join('\n');
       const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
-      const instruccionesConIngredientes = `[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
+      const categoriasString = categoriasFormMúltiples.join(',');
+      
+      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
 
       const { error } = await supabase.from('recetas').insert([
         {
           titulo: tituloForm.trim(),
           descripcion: descripcionForm.trim() || null, 
-          instrucciones: instruccionesConIngredientes,
+          instrucciones: instruccionesEmpaquetadas,
           tiempo_preparacion: totalMinutosCalculados,
           tiempo_coccion: 0,
           imagen_url: imagenPreview || null, 
@@ -245,7 +254,12 @@ export default function PantallaPrincipalRecetas() {
       }
 
       if (!receta.titulo.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      if (selectedCategories.length > 0 && (!receta.categoria_id || !selectedCategories.includes(receta.categoria_id))) return false;
+      
+      if (selectedCategories.length > 0) {
+        const coincidencia = receta.categorias_ids?.some(id => selectedCategories.includes(id));
+        if (!coincidencia) return false;
+      }
+      
       if (selectedDifficulties.length > 0 && !selectedDifficulties.includes(receta.dificultad)) return false;
       
       const rowRating = receta.num_valoraciones === 0 ? 0 : Math.floor(receta.valoracion_media || 5);
@@ -350,15 +364,15 @@ export default function PantallaPrincipalRecetas() {
                     onBack={() => setCurrentScreen('list')} onSubmit={handleGuardarReceta}
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
-                    tiempoHoursForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
+                    tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
                     dificultadForm={dificultadForm} setDificultadForm={setDificultadForm} categorias={categorias} categoriasFormMúltiples={categoriasFormMúltiples}
-                    onToggleFormCategory={(id) => setCategoriasFormMúltiples(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])}
+                    onToggleFormCategory={(id) => setCategoriasFormMúltiples(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 3 ? p : [...p, id])}
                     ingredientesListForm={ingredientesListForm} handleIngredientChange={(i, v) => { const c = [...ingredientesListForm]; c[i] = v; setIngredientesListForm(c); }}
                     addIngredientField={() => setIngredientesListForm([...ingredientesListForm, ''])}
                     pasosListForm={pasosListForm} handlePasoChange={(i, v) => { const c = [...pasosListForm]; c[i] = v; setPasosListForm(c); }}
                     addPasoField={() => setPasosListForm([...pasosListForm, ''])}
                     imagenPreview={imagenPreview} handleImagenChange={(e) => { const f = e.target.files?.[0]; if (f) setImagenPreview(URL.createObjectURL(f)); }}
-                    isSaving={isSaving} obtenerColorCirculo={obtercerColorCirculo}
+                    isSaving={isSaving} obtenerColorCirculo={obtenerColorCirculo}
                   />
                 )}
 

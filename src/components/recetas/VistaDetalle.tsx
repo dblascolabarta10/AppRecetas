@@ -19,9 +19,24 @@ interface Props {
 export default function VistaDetalle({ 
   receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, renderEstrellasComentario 
 }: Props) {
-  const pasos = receta.instrucciones.split('\n').map(p => p.replace(/^\d+\.\s?/, '').trim()).filter(p => p.length > 1);
+  
+  const rawInstrucciones = receta.instrucciones || '';
+  let ingredientesTexto = 'Sin ingredientes especificados.';
+  let pasosArray: string[] = [];
 
-  // Estados locales para la nueva reseña interactiva
+  if (rawInstrucciones.includes('[PASOS]')) {
+    const partesPasos = rawInstrucciones.split('[PASOS]');
+    const bloquePasos = partesPasos[1] || '';
+    pasosArray = bloquePasos.split('\n').map(p => p.replace(/^\d+\.\s?/, '').trim()).filter(p => p.length > 0);
+    
+    const bloquePrevio = partesPasos[0];
+    if (bloquePrevio.includes('[INGREDIENTES]')) {
+      ingredientesTexto = bloquePrevio.split('[INGREDIENTES]')[1].trim();
+    }
+  } else {
+    pasosArray = rawInstrucciones.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+  }
+
   const [inputRating, setInputRating] = useState<number>(5);
   const [inputComentario, setInputComentario] = useState<string>('');
   const [enviando, setEnviando] = useState<boolean>(false);
@@ -46,16 +61,30 @@ export default function VistaDetalle({
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-left w-full flex flex-col pb-16">
-        <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0">
-          <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-44 object-cover"/>
-          <div className="p-4 space-y-2">
+        <div className="bg-white rounded-2xl overflow-hidden border border-stone-200 shadow-3xs shrink-0 p-4 space-y-3">
+          <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-44 object-cover rounded-xl"/>
+          
+          <div className="space-y-2">
             <div className="flex justify-between items-start gap-2">
               <h1 className="text-xs font-black text-stone-900 leading-tight flex-1">{receta.titulo}</h1>
               <span className="text-[8px] font-mono font-bold bg-stone-100 border text-stone-500 px-2 py-0.5 rounded-md uppercase">{obtenerTiempoRelativo(receta.fecha_creacion)}</span>
             </div>
-            <div className="flex justify-between items-center w-full text-[9px] font-bold text-stone-500">
+            
+            <div className="text-[9px] font-bold text-stone-500">
               <span>Autor: {receta.autor_nombre}</span>
             </div>
+
+            {/* Renderizado de multiples etiquetas independientes en detalle */}
+            {receta.categorias_ids && receta.categorias_ids.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {receta.categorias_ids.map(catId => mapaCategorias[catId] && (
+                  <span key={catId} className="bg-stone-100 text-stone-600 text-[9px] font-bold uppercase px-2.5 py-1 rounded-lg border border-stone-200">
+                    {mapaCategorias[catId]}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-col gap-1.5 border-t pt-2 mt-1">
               <div className="flex items-center justify-between w-full">
                 <span className="inline-flex items-center gap-1 text-[9px] font-bold text-stone-700"><Clock className="w-3 h-3 text-amber-500" /> {formatearMinutos(receta.tiempo_preparacion)}</span>
@@ -70,39 +99,40 @@ export default function VistaDetalle({
 
         {receta.secreto_familiar && (
           <div className="space-y-1 w-full shrink-0">
-            <span className="text-[9px] font-bold text-amber-700 uppercase block">🤫 Secreto Familiar Oculto</span>
+            <span className="text-[9px] font-bold text-amber-700 uppercase block">Secreto Familiar Oculto</span>
             <div className="w-full bg-amber-50/60 p-3 rounded-2xl border border-amber-200 text-[10px] text-amber-900 shadow-3xs font-mono">{receta.secreto_familiar}</div>
           </div>
         )}
 
         <div className="space-y-1 w-full shrink-0">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><Utensils className="w-3 h-3 text-amber-500" /> 🛒 Ingredientes</span>
-          <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full whitespace-pre-wrap leading-relaxed">{receta.ingredientes_lista}</div>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><Utensils className="w-3 h-3 text-amber-500" /> Ingredientes</span>
+          <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full whitespace-pre-wrap leading-relaxed">{ingredientesTexto}</div>
         </div>
 
         <div className="space-y-1 w-full shrink-0">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboración</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboracion</span>
           <div className="space-y-2.5 w-full">
-            {pasos.map((paso, i) => (
-              <div key={i} className="w-full bg-white p-3 rounded-xl border border-stone-200 flex gap-3 shadow-3xs items-start">
-                <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                <p className="text-[10px] text-stone-700 leading-relaxed flex-1">{paso}</p>
-              </div>
-            ))}
+            {pasosArray.length > 0 ? (
+              pasosArray.map((paso, i) => (
+                <div key={i} className="w-full bg-white p-3 rounded-xl border border-stone-200 flex gap-3 shadow-3xs items-start">
+                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                  <p className="text-[10px] text-stone-700 leading-relaxed flex-1">{paso}</p>
+                </div>
+              ))
+            ) : (
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Sin pasos registrados.</div>
+            )}
           </div>
         </div>
 
-        {/* Sección de Anécdotas */}
         <div className="space-y-1.5 w-full shrink-0 pt-2">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">💬 Anécdotas de la Familia</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
-          {/*  FORMULARIO INTERACTIVO PARA RESEÑAR RECETAS AJENAS */}
           {!esMia && (
             <form onSubmit={handleEnviarReseña} className="bg-amber-50/40 p-3 rounded-2xl border border-amber-200/50 flex flex-col gap-2.5 w-full shadow-3xs">
               <div className="flex justify-between items-center w-full">
-                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoración:</span>
+                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoracion:</span>
                 
-                {/* Selector táctil por estrellas */}
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((num) => (
                     <button
@@ -117,7 +147,7 @@ export default function VistaDetalle({
 
               <div className="flex gap-1.5 items-center w-full">
                 <input
-                  type="text" required placeholder="Ej: ¡Me quedó cremosísimo, tía! Añadí un..."
+                  type="text" required placeholder="Ej: Me quedo cremosisimo, tia! Anade un..."
                   value={inputComentario} onChange={(e) => setInputComentario(e.target.value)}
                   className="flex-1 bg-white border border-stone-200 px-3 py-1.5 rounded-xl text-[10px] outline-none shadow-3xs"
                 />
@@ -143,7 +173,7 @@ export default function VistaDetalle({
                 </div>
               ))
             ) : (
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavía.</div>
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todav a.</div>
             )}
           </div>
         </div>
