@@ -1,11 +1,10 @@
 // src/components/recetas/VistaLista.tsx
 import React from 'react';
-import { Search, Clock, SlidersHorizontal, Plus, Bookmark } from 'lucide-react';
+import { Search, Clock, SlidersHorizontal, Plus, Bookmark, Trash2, BookmarkCheck, RefreshCw } from 'lucide-react';
 import { Receta } from '../../types/recetas';
 import { formatearMinutos } from '../../utils/recetasHelpers';
 import EstrellasValoracion from './EstrellasValoracion';
 import CirculosDificultad from './CirculosDificultad';
-import { BookmarkCheck, RefreshCw } from 'lucide-react';
 
 interface Props {
   recetas: Receta[];
@@ -16,6 +15,7 @@ interface Props {
   currentFamiliarId: string;
   savedRecetasIds: string[];
   onToggleSave: (e: React.MouseEvent, id: string) => void;
+  onBorrarReceta: (id: string) => void;
   onSelectReceta: (r: Receta) => void;
   onOpenFilters: () => void;
   onGoToCreate: () => void;
@@ -24,7 +24,7 @@ interface Props {
 
 export default function VistaLista({
   recetas, loading, searchQuery, setSearchQuery, activeTab,
-  currentFamiliarId, savedRecetasIds, onToggleSave, onSelectReceta, onOpenFilters, onGoToCreate, mapaCategorias
+  currentFamiliarId, savedRecetasIds, onToggleSave, onBorrarReceta, onSelectReceta, onOpenFilters, onGoToCreate, mapaCategorias
 }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col w-full h-full">
@@ -63,7 +63,16 @@ export default function VistaLista({
                 <div className="w-full h-40 bg-stone-200 relative">
                   <img src={receta.imagen_url || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?w=500&auto=format&fit=crop&q=60"} alt={receta.titulo} className="w-full h-full object-cover"/>
                   
-                  {!esMia && (
+                  {/* ACCIÓN EN ESQUINA DERECHA CONDICIONAL */}
+                  {esMia ? (
+                    <button 
+                      type="button" 
+                      onClick={(e) => { e.stopPropagation(); onBorrarReceta(String(receta.id)); }} 
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 shadow-md border border-red-200 focus:outline-none z-10 active:scale-90 transition-transform"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                    </button>
+                  ) : (
                     <button type="button" onClick={(e) => onToggleSave(e, String(receta.id))} className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 shadow-md border focus:outline-none z-10">
                       {estaGuardada ? <BookmarkCheck className="w-3.5 h-3.5 text-amber-600 fill-amber-600" /> : <Bookmark className="w-3.5 h-3.5 text-stone-400" />}
                     </button>
@@ -78,7 +87,6 @@ export default function VistaLista({
                     </div>
                     <p className="text-[10px] text-stone-500 mt-1 line-clamp-2 italic">{receta.descripcion || 'Sin descripcion disponible.'}</p>
                     
-                    {/* Visualizacion de múltiples etiquetas independientes */}
                     {receta.categorias_ids && receta.categorias_ids.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {receta.categorias_ids.map(catId => mapaCategorias[catId] && (

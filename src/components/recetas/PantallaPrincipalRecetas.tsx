@@ -10,6 +10,7 @@ import VistaDetalle from './VistaDetalle';
 import VistaCrear from './VistaCrear';
 import PanelFiltros from './PanelFiltros';
 import VistaAuth from './VistaAuth'; 
+import ModalConfirmacion from './ModalConfirmacion'; // <-- Importamos el nuevo modal chulo
 
 export default function PantallaPrincipalRecetas() {
   const [session, setSession] = useState<any>(null);
@@ -30,13 +31,28 @@ export default function PantallaPrincipalRecetas() {
     return local ? JSON.parse(local) : [];
   });
 
+  // ---  ESTADO CENTRAL DEL MODAL DE CONFIRMACIÓN ---
+  const [modalConfirm, setModalConfirm] = useState<{
+    isOpen: boolean;
+    titulo: string;
+    mensaje: string;
+    tipo: 'danger' | 'warning';
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    titulo: '',
+    mensaje: '',
+    tipo: 'warning',
+    onConfirm: () => {}
+  });
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedDifficulties, setSelectedDifficulties] = useState<number[]>([]);
   const [selectedRatings, setSelectedRatings] = useState<number[]>([]);
   const [minTime, setMinTime] = useState<number>(0);
   const [maxTime, setMaxTime] = useState<number>(180);
-  const [timeRange, setTimeRange] = useState<string>( 'all');
+  const [timeRange, setTimeRange] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'recent' | 'old'>('recent');
 
   const [tituloForm, setTituloForm] = useState<string>('');
@@ -125,12 +141,6 @@ export default function PantallaPrincipalRecetas() {
 
           return {
             ...r,
-            receta_ingredientes: r.receta_ingredientes?.map((ri: any) => ({
-              cantidad: Number(ri.cantidad || 0),
-              unidad_medida: ri.unidad_medida || 'unidades',
-              nombre_ingrediente: ri.ingredientes?.nombre || 'Ingrediente',
-              es_opcional: !!ri.es_opcional
-            })) || [],
             categorias_ids: finalCategories,
             num_valoraciones: r.comentarios_valoraciones?.length || 0,
             autor_nombre: r.familiares?.nombre || 'Familiar'
@@ -159,6 +169,35 @@ export default function PantallaPrincipalRecetas() {
       console.error(err);
       setComentarios([]);
     }
+  };
+
+  // Ejecucion del borrado real tras la confirmacion en el modal
+  const ejecutarBorradoBaseDatos = async (id: string) => {
+    try {
+      const { error } = await supabase.from('recetas').delete().eq('id', id);
+      if (error) throw error;
+      
+      setSuccessToast('Receta eliminada correctamente');
+      if (selectedReceta && String(selectedReceta.id) === String(id)) {
+        setCurrentScreen('list');
+        setSelectedReceta(null);
+      }
+      await fetchData();
+      setTimeout(() => setSuccessToast(null), 3000);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Disparador del modal chulo para borrar recetas
+  const handleBorrarRecetaClick = (id: string) => {
+    setModalConfirm({
+      isOpen: true,
+      titulo: 'Eliminar Receta',
+      mensaje: '¿Seguro que quieres borrar este plato? Se eliminara del recetario familiar de forma permanente.',
+      tipo: 'danger',
+      onConfirm: () => ejecutarBorradoBaseDatos(id)
+    });
   };
 
   useEffect(() => {
@@ -285,24 +324,24 @@ export default function PantallaPrincipalRecetas() {
   }
 
   return (
-    <div className="w-full h-full md:p-4 md:space-y-4 md:max-w-md md:mx-auto">
-      {successToast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white font-mono text-xs font-bold px-4 py-2 rounded-full shadow-lg z-50">
-          {successToast}
-        </div>
-      )}
-
-      {session && (
-        <div className="hidden md:flex justify-between items-center p-3 rounded-xl border text-xs bg-amber-500/5 border-amber-500/20 text-amber-700 font-bold">
-          <span className="truncate">Sesion: {session.user.email}</span>
-          <button type="button" onClick={() => supabase.auth.signOut()} className="flex items-center gap-1 text-red-600 hover:text-red-700 text-[10px] uppercase font-mono tracking-wider font-black focus:outline-none cursor-pointer"><LogOut className="w-3.5 h-3.5" /> Salir</button>
-        </div>
-      )}
-
+    <div className="w-full h-full md:p-4 md:space-y-4 md:max-w-md md:mx-auto flex flex-col">
       <div className="fixed inset-0 w-full h-full bg-stone-50 flex flex-col overflow-hidden md:relative md:inset-auto md:h-[640px] md:bg-slate-950 md:rounded-[40px] md:p-3 md:border-4 md:border-gray-800">
         <div className="w-full flex-1 bg-stone-50 flex flex-col text-stone-800 md:rounded-[28px] md:overflow-hidden relative">
+          
+          {session && (
+            <div className="w-full flex justify-between items-center px-4 py-2 bg-stone-900 text-stone-100 text-[10px] font-mono shrink-0 z-30 border-b border-stone-800">
+              <span className="truncate max-w-[70%]">Usuario: {session.user.email}</span>
+              <button 
+                type="button" 
+                onClick={() => supabase.auth.signOut()} 
+                className="flex items-center gap-1 text-amber-500 hover:text-amber-400 font-bold uppercase tracking-wider focus:outline-none cursor-pointer"
+              >
+                <LogOut className="w-3 h-3" /> Salir
+              </button>
+            </div>
+          )}
+
           <div className="flex-1 flex flex-col relative overflow-hidden">
-            
             {!session ? (
               <VistaAuth />
             ) : (
@@ -313,9 +352,25 @@ export default function PantallaPrincipalRecetas() {
                       recetas={recetasFiltradas} loading={loading} searchQuery={searchQuery} setSearchQuery={setSearchQuery}
                       activeTab={activeTab} currentFamiliarId={currentFamiliarId}
                       savedRecetasIds={savedRecetasIds} mapaCategorias={mapaCategorias}
+                      onBorrarReceta={handleBorrarRecetaClick} // Enlazamos al disparador del modal
                       onToggleSave={(e, id) => {
                         e.stopPropagation();
-                        setSavedRecetasIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+                        const estaGuardada = savedRecetasIds.includes(String(id));
+                        
+                        if (estaGuardada) {
+                          //  PROCESO REACTIVO CON EL MODAL MODERNO PARA QUITAR MARCADORES
+                          setModalConfirm({
+                            isOpen: true,
+                            titulo: 'Quitar Marcador',
+                            mensaje: '¿Quieres eliminar este plato de tu lista de recetas guardadas?',
+                            tipo: 'warning',
+                            onConfirm: () => {
+                              setSavedRecetasIds(p => p.filter(x => x !== String(id)));
+                            }
+                          });
+                        } else {
+                          setSavedRecetasIds(p => [...p, String(id)]);
+                        }
                       }}
                       onSelectReceta={(r) => { 
                         setSelectedReceta(r); 
@@ -349,6 +404,7 @@ export default function PantallaPrincipalRecetas() {
                     receta={selectedReceta} comentarios={comentarios} onBack={() => setCurrentScreen('list')}
                     mapaCategorias={mapaCategorias} currentFamiliarId={currentFamiliarId}
                     onAñadirComentario={handleAñadirComentario}
+                    onBorrarReceta={handleBorrarRecetaClick} // Enlazamos al disparador del modal
                     renderEstrellasComentario={(n) => (
                       <div className="flex gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -387,8 +443,18 @@ export default function PantallaPrincipalRecetas() {
                 />
               </>
             )}
-
           </div>
+
+          {/*  INYECCIÓN DE LA VENTANA EMERGENTE MAJESTUOSA EN EL FLUJO */}
+          <ModalConfirmacion 
+            isOpen={modalConfirm.isOpen}
+            titulo={modalConfirm.titulo}
+            mensaje={modalConfirm.mensaje}
+            tipo={modalConfirm.tipo}
+            onClose={() => setModalConfirm(prev => ({ ...prev, isOpen: false }))}
+            onConfirm={modalConfirm.onConfirm}
+          />
+
         </div>
       </div>
     </div>

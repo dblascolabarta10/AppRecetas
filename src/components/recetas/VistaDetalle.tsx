@@ -1,7 +1,9 @@
 // src/components/recetas/VistaDetalle.tsx
 import React, { useState } from 'react';
-import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star } from 'lucide-react';
+import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star, Trash2, Share2, FileText } from 'lucide-react';
 import { Receta, ComentarioFamiliar } from '../../types/recetas';
+import { Share } from '@capacitor/share';
+import { Capacitor } from '@capacitor/core'; 
 import { formatearMinutos, obtenerTiempoRelativo } from '../../utils/recetasHelpers';
 import EstrellasValoracion from './EstrellasValoracion';
 import CirculosDificultad from './CirculosDificultad';
@@ -13,11 +15,12 @@ interface Props {
   mapaCategorias: Record<string, string>;
   currentFamiliarId: string;
   onAñadirComentario: (puntuacion: number, comentario: string) => Promise<void>;
+  onBorrarReceta: (id: string) => Promise<void>;
   renderEstrellasComentario: (n: number) => React.ReactNode;
 }
 
 export default function VistaDetalle({ 
-  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, renderEstrellasComentario 
+  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, onBorrarReceta, renderEstrellasComentario 
 }: Props) {
   
   const rawInstrucciones = receta.instrucciones || '';
@@ -43,21 +46,133 @@ export default function VistaDetalle({
 
   const esMia = String(receta.familiar_id) === String(currentFamiliarId);
 
-  const handleEnviarReseña = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (enviando) return;
-    setEnviando(true);
-    await onAñadirComentario(inputRating, inputComentario);
-    setInputComentario('');
-    setInputRating(5);
-    setEnviando(false);
+  // FUNCION: Compartir texto estructurado en Apps nativas (WhatsApp, etc)
+  const handleCompartirTexto = async () => {
+  const listadoPasos = pasosArray.map((p, i) => `${i + 1}. ${p}`).join('\n');
+  const categoriasNombres = receta.categorias_ids
+    ? receta.categorias_ids.map(id => mapaCategorias[id]).filter(Boolean).join(', ')
+    : '';
+
+  const textoCompartir = `RECETA FAMILIAR: ${receta.titulo.toUpperCase()}\n` +
+    `${receta.descripcion ? `"${receta.descripcion}"\n` : ''}\n` +
+    `Autor: ${receta.autor_nombre}\n` +
+    `Tiempo: ${formatearMinutos(receta.tiempo_preparacion)}\n` +
+    `${categoriasNombres ? `Categorias: ${categoriasNombres}\n` : ''}\n` +
+    `INGREDIENTES:\n${ingredientesTexto}\n\n` +
+    `ELABORACION:\n${listadoPasos}`;
+
+  try {
+    await Share.share({
+      title: receta.titulo,
+      text: textoCompartir,
+      dialogTitle: 'Compartir receta familiar'
+    });
+  } catch (err) {
+    console.log('Error al invocar el menu de comparticion movil', err);
+  }
+};
+
+  // FUNCION: Exportacion limpia a PDF usando el motor de impresion del dispositivo móvil
+  // Reescritura definitiva de la funcion con el plugin real
+  const handleExportarPDF = async () => {
+    // Creamos el bloque HTML limpio con estilos basicos para el PDF
+    const estructuraCuerpo = document.querySelector('.printable-area')?.innerHTML || '';
+    
+    const documentoCompletoHtml = `
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: sans-serif; color: #1c1917; padding: 24px; background: white; }
+            .no-print { display: none !important; }
+            img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 16px; margin-bottom: 12px; }
+            h1 { font-size: 20px; font-weight: 900; margin-top: 0; }
+            .bg-white { background: white; padding: 12px; border: 1px solid #e7e5e4; border-radius: 16px; }
+            .whitespace-pre-wrap { white-space: pre-wrap; }
+            .italic { font-style: italic; }
+            .space-y-4 > * { margin-bottom: 16px; }
+            .rounded-xl { border-radius: 12px; border: 1px solid #e7e5e4; padding: 10px; display: flex; gap: 10px; }
+            .rounded-full { width: 20px; height: 20px; background: #d97706; color: white; border-radius: 50%; display: inline-flex; items-center justify-center; font-size: 10px; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          ${estructuraCuerpo}
+        </body>
+      </html>
+    `;
+
+    if (Capacitor.isNativePlatform()) {
+      // Accedemos al objeto global de Cordova que inyecta el plugin en el movil
+      const pluginImpresion = (window as any).cordova?.plugins?.printer;
+
+      if (pluginImpresion) {
+        // Ejecuta la orden de impresion nativa pasando el HTML estructurado
+        pluginImpresion.print(documentoCompletoHtml);
+      } else {
+        alert('El plugin de impresion no se ha inicializado correctamente en el dispositivo.');
+      }
+    } else {
+      // Si estas probando en la web del PC, sigue usando el comando del navegador
+      window.print();
+    }
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-stone-50 w-full h-full">
-      <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0">
+    <div className="absolute inset-0 flex flex-col bg-stone-50 w-full h-full printable-area">
+      
+      {/* Estilos CSS inline especificos para la exportacion a PDF mediante impresion */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .printable-area, .printable-area * {
+            visibility: visible;
+          }
+          .printable-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white;
+            color: black;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
+
+      <header className="bg-white border-b border-stone-100 px-4 py-2 flex items-center gap-2 shrink-0 no-print">
         <button onClick={onBack} className="p-1 bg-stone-100 rounded-full"><ArrowLeft className="w-4 h-4" /></button>
         <h2 className="text-xs font-bold text-stone-800 truncate text-left flex-1">{receta.titulo}</h2>
+        
+        {/* Boton para compartir por WhatsApp u otras Apps móviles */}
+        <button 
+          onClick={handleCompartirTexto}
+          className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none"
+          title="Compartir receta"
+        >
+          <Share2 className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Boton para exportar a PDF de forma nativa */}
+        <button 
+          onClick={handleExportarPDF}
+          className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none"
+          title="Exportar a PDF"
+        >
+          <FileText className="w-3.5 h-3.5" />
+        </button>
+
+        {esMia && (
+          <button 
+            onClick={() => onBorrarReceta(String(receta.id))} 
+            className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-left w-full flex flex-col pb-16">
@@ -74,7 +189,6 @@ export default function VistaDetalle({
               <span>Autor: {receta.autor_nombre}</span>
             </div>
 
-            {/* Renderizado de multiples etiquetas independientes en detalle */}
             {receta.categorias_ids && receta.categorias_ids.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {receta.categorias_ids.map(catId => mapaCategorias[catId] && (
@@ -125,7 +239,8 @@ export default function VistaDetalle({
           </div>
         </div>
 
-        <div className="space-y-1.5 w-full shrink-0 pt-2">
+        {/* Formulario de comentarios y listado de anecdotas marcado como 'no-print' */}
+        <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
           <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
           {!esMia && (
@@ -173,7 +288,7 @@ export default function VistaDetalle({
                 </div>
               ))
             ) : (
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todav a.</div>
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavia.</div>
             )}
           </div>
         </div>

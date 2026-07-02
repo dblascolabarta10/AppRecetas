@@ -1,6 +1,8 @@
 // src/components/recetas/VistaAuth.tsx
 import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 import { ChefHat, Lock, Mail, User, RefreshCw, Check } from 'lucide-react';
 
 interface Props {
@@ -16,22 +18,35 @@ export default function VistaCrear({ onBack }: Props) {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
 
-  //  NUEVA FUNCIÓN: LOGIN CON GOOGLE EN UN CLIC
+  // Funcion de inicio de sesion hibrida inteligente con Google
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const isNative = Capacitor.isNativePlatform();
+      
+      const redirectUrl = isNative 
+        ? 'recetariofamiliar://login' 
+        : window.location.origin;
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          // Cuando compiles con Capacitor para móvil, cambiaremos esto por tu Deep Link (esquema de tu app)
-          redirectTo: window.location.origin 
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: isNative
         }
       });
+      
       if (error) throw error;
+
+      if (isNative && data?.url) {
+        await Browser.open({ url: data.url });
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error al conectar con Google.');
-      setLoading(false);
+    } finally {
+      // ESTO ES CRÍTICO: Libera el boton tanto si tiene exito como si falla
+      setLoading(false); 
     }
   };
 
@@ -54,11 +69,11 @@ export default function VistaCrear({ onBack }: Props) {
           options: { data: { nombre: nombre.trim() } }
         });
         if (error) throw error;
-        alert('¡Alta correcta! Ya puedes iniciar sesión.');
+        alert('Alta correcta. Ya puedes iniciar sesion.');
         setIsFilterLogin(true);
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Ocurrió un error.');
+      setErrorMsg(err.message || 'Ocurrio un error.');
     } finally {
       setLoading(false);
     }
@@ -78,7 +93,7 @@ export default function VistaCrear({ onBack }: Props) {
           </div>
         </div>
 
-        {/*  BOTÓN MAJESTUOSO DE GOOGLE SIGN-IN */}
+        {/* Boton de Google con redireccion dinamica web/movil */}
         <button
           type="button"
           disabled={loading}
@@ -95,13 +110,17 @@ export default function VistaCrear({ onBack }: Props) {
           <span className="mx-3 text-[9px] text-stone-400 font-bold uppercase tracking-wider">O usar correo</span>
         </div>
 
-        {/* Conmutador */}
+        {/* Conmutador de vistas */}
         <div className="flex bg-stone-100 p-1 rounded-xl border border-stone-200">
           <button type="button" onClick={() => setIsFilterLogin(true)} className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${isLogin ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-400'}`}>Entrar</button>
           <button type="button" onClick={() => setIsFilterLogin(false)} className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all ${!isLogin ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-400'}`}>Registrarse</button>
         </div>
 
-        {errorMsg && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[9px] font-mono font-bold">⚠️ {errorMsg}</div>}
+        {errorMsg && (
+          <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[9px] font-mono font-bold">
+            Error: {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleAuthSubmit} className="space-y-3.5">
           {!isLogin && (
@@ -109,7 +128,7 @@ export default function VistaCrear({ onBack }: Props) {
               <label className="text-[9px] font-bold text-stone-400 uppercase">Nombre</label>
               <div className="relative">
                 <User className="absolute left-3 top-2.5 w-3.5 h-3.5 text-stone-400" />
-                <input type="text" required placeholder="Tía Enriqueta" value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full bg-stone-50 border border-stone-200 pl-9 pr-3 py-1.5 rounded-xl text-xs outline-none focus:border-amber-500" />
+                <input type="text" required placeholder="Tia Enriqueta" value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full bg-stone-50 border border-stone-200 pl-9 pr-3 py-1.5 rounded-xl text-xs outline-none focus:border-amber-500" />
               </div>
             </div>
           )}
@@ -123,7 +142,7 @@ export default function VistaCrear({ onBack }: Props) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-[9px] font-bold text-stone-400 uppercase">Contraseña</label>
+            <label className="text-[9px] font-bold text-stone-400 uppercase">Contrasena</label>
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 w-3.5 h-3.5 text-stone-400" />
               <input type="password" required minLength={6} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-stone-50 border border-stone-200 pl-9 pr-3 py-1.5 rounded-xl text-xs outline-none focus:border-amber-500" />
