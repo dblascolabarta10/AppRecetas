@@ -1,4 +1,3 @@
-// src/components/recetas/PantallaPrincipalRecetas.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Receta, Categoria, ComentarioFamiliar } from '../../types/recetas';
@@ -12,7 +11,6 @@ import PanelFiltros from './PanelFiltros';
 import VistaAuth from './VistaAuth'; 
 import ModalConfirmacion from './ModalConfirmacion'; 
 
-// Importación del servicio de subida multimedia masiva
 import { subirMultimediaReceta } from '../../services/recetasMultimedia';
 
 export default function PantallaPrincipalRecetas() {
@@ -29,14 +27,15 @@ export default function PantallaPrincipalRecetas() {
   const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [currentFamiliarId, setCurrentFamiliarId] = useState<string>('');
+  
   const [savedRecetasIds, setSavedRecetasIds] = useState<string[]>(() => {
     const local = localStorage.getItem('recetas_guardadas_familia');
     return local ? JSON.parse(local) : [];
   });
 
-  // NUEVOS ESTADOS CENTRALIZADOS PARA MULTIMEDIA
   const [archivosMultimedia, setArchivosMultimedia] = useState<any[]>([]);
   const [multimediaReceta, setMultimediaReceta] = useState<any[]>([]);
+  const [imagenFile, setImagenFile] = useState<File | null>(null);
 
   const [modalConfirm, setModalConfirm] = useState<{
     isOpen: boolean;
@@ -127,7 +126,7 @@ export default function PantallaPrincipalRecetas() {
         .select(`
           id, titulo, descripcion, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media,
           familiares ( nombre ),
-          receta_ingredientes ( cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
+          receta_ingredientes ( quantity:cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
           comentarios_valoraciones ( id )
         `)
         .order('fecha_creacion', { ascending: false });
@@ -177,7 +176,6 @@ export default function PantallaPrincipalRecetas() {
     }
   };
 
-  // NUEVA FUNCIÓN: Descarga las URLs multimedia adjuntas a la receta abierta
   const fetchMultimediaReceta = async (recetaId: string) => {
     try {
       const { data, error } = await supabase
@@ -247,9 +245,28 @@ export default function PantallaPrincipalRecetas() {
       const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
       const categoriasString = categoriasFormMúltiples.join(',');
       
+      let urlPortadaDefinitiva = null;
+
+      if (imagenFile) {
+        const extension = imagenFile.name.split('.').pop();
+        const nombreArchivo = `${Date.now()}_portada.${extension}`;
+        const rutaAlmacenamiento = `portadas/${nombreArchivo}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('multimedia-recetas')
+          .upload(rutaAlmacenamiento, imagenFile);
+
+        if (uploadError) throw new Error(`Error al subir la portada: ${uploadError.message}`);
+
+        const { data: urlData } = supabase.storage
+          .from('multimedia-recetas')
+          .getPublicUrl(rutaAlmacenamiento);
+
+        urlPortadaDefinitiva = urlData.publicUrl;
+      }
+
       const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
 
-      // MODIFICADO: Añadido select().single() para capturar el ID devuelto por Supabase en caliente
       const { data: nuevaReceta, error } = await supabase.from('recetas').insert([
         {
           titulo: tituloForm.trim(),
@@ -257,7 +274,7 @@ export default function PantallaPrincipalRecetas() {
           instrucciones: instruccionesEmpaquetadas,
           tiempo_preparacion: totalMinutosCalculados,
           tiempo_coccion: 0,
-          imagen_url: imagenPreview || null, 
+          imagen_url: urlPortadaDefinitiva || null, 
           dificultad: Number(dificultadForm),
           secreto_familiar: secretoForm.trim() || null,
           es_privada: esPrivadaForm,
@@ -268,7 +285,6 @@ export default function PantallaPrincipalRecetas() {
 
       if (error) throw error;
 
-      // SI HAY MULTIMEDIA EXTRA, DISPARAMOS LA SUBIDA RELACIONAL AHORA MISMO
       if (archivosMultimedia.length > 0 && nuevaReceta) {
         await subirMultimediaReceta(nuevaReceta.id, archivosMultimedia);
       }
@@ -279,7 +295,8 @@ export default function PantallaPrincipalRecetas() {
       setTituloForm(''); setDescripcionForm(''); setIngredientesListForm(['']); setPasosListForm(['']);
       setCategoriasFormMúltiples([]); setImagenPreview(null); setTiempoHorasForm(0); setTiempoMinutosForm(30);
       setSecretoForm(''); setEsPrivadaForm(false);
-      setArchivosMultimedia([]); // Limpiamos el estado multimedia
+      setArchivosMultimedia([]); 
+      setImagenFile(null);
       setCurrentScreen('list');
       setTimeout(() => setSuccessToast(null), 3000);
     } catch (err: any) {
@@ -403,7 +420,7 @@ export default function PantallaPrincipalRecetas() {
                         setSelectedReceta(r); 
                         setCurrentScreen('detail'); 
                         fetchComentariosReceta(String(r.id));
-                        fetchMultimediaReceta(String(r.id)); // <-- Llamada añadida
+                        fetchMultimediaReceta(String(r.id)); 
                       }}
                       onOpenFilters={() => setIsFilterPanelOpen(true)} onGoToCreate={() => setCurrentScreen('create')}
                     />
@@ -433,7 +450,7 @@ export default function PantallaPrincipalRecetas() {
                     mapaCategorias={mapaCategorias} currentFamiliarId={currentFamiliarId}
                     onAñadirComentario={handleAñadirComentario}
                     onBorrarReceta={handleBorrarRecetaClick} 
-                    multimedia={multimediaReceta} // <-- Pasamos el listado multimedia de la base de datos
+                    multimedia={multimediaReceta} 
                     renderEstrellasComentario={(n) => (
                       <div className="flex gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -456,10 +473,10 @@ export default function PantallaPrincipalRecetas() {
                     addIngredientField={() => setIngredientesListForm([...ingredientesListForm, ''])}
                     pasosListForm={pasosListForm} handlePasoChange={(i, v) => { const c = [...pasosListForm]; c[i] = v; setPasosListForm(c); }}
                     addPasoField={() => setPasosListForm([...pasosListForm, ''])}
-                    imagenPreview={imagenPreview} handleImagenChange={(e) => { const f = e.target.files?.[0]; if (f) setImagenPreview(URL.createObjectURL(f)); }}
+                    imagenPreview={imagenPreview} handleImagenChange={(e) => { const f = e.target.files?.[0]; if (f) { setImagenFile(f); setImagenPreview(URL.createObjectURL(f)); } }}
                     isSaving={isSaving} obtenerColorCirculo={obtenerColorCirculo}
-                    archivosMultimedia={archivosMultimedia} // <-- Pasamos el estado de selección
-                    setArchivosMultimedia={setArchivosMultimedia} // <-- Pasamos el modificador
+                    archivosMultimedia={archivosMultimedia} 
+                    setArchivosMultimedia={setArchivosMultimedia} 
                   />
                 )}
 
