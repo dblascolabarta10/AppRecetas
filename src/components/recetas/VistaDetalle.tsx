@@ -17,10 +17,11 @@ interface Props {
   onAñadirComentario: (puntuacion: number, comentario: string) => Promise<void>;
   onBorrarReceta: (id: string) => Promise<void>;
   renderEstrellasComentario: (n: number) => React.ReactNode;
+  multimedia: any[]; // <-- Añadido prop
 }
 
 export default function VistaDetalle({ 
-  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, onBorrarReceta, renderEstrellasComentario 
+  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, onBorrarReceta, renderEstrellasComentario, multimedia 
 }: Props) {
   
   const rawInstrucciones = receta.instrucciones || '';
@@ -46,36 +47,32 @@ export default function VistaDetalle({
 
   const esMia = String(receta.familiar_id) === String(currentFamiliarId);
 
-  // FUNCION: Compartir texto estructurado en Apps nativas (WhatsApp, etc)
   const handleCompartirTexto = async () => {
-  const listadoPasos = pasosArray.map((p, i) => `${i + 1}. ${p}`).join('\n');
-  const categoriasNombres = receta.categorias_ids
-    ? receta.categorias_ids.map(id => mapaCategorias[id]).filter(Boolean).join(', ')
-    : '';
+    const listadoPasos = pasosArray.map((p, i) => `${i + 1}. ${p}`).join('\n');
+    const categoriasNombres = receta.categorias_ids
+      ? receta.categorias_ids.map(id => mapaCategorias[id]).filter(Boolean).join(', ')
+      : '';
 
-  const textoCompartir = `RECETA FAMILIAR: ${receta.titulo.toUpperCase()}\n` +
-    `${receta.descripcion ? `"${receta.descripcion}"\n` : ''}\n` +
-    `Autor: ${receta.autor_nombre}\n` +
-    `Tiempo: ${formatearMinutos(receta.tiempo_preparacion)}\n` +
-    `${categoriasNombres ? `Categorias: ${categoriasNombres}\n` : ''}\n` +
-    `INGREDIENTES:\n${ingredientesTexto}\n\n` +
-    `ELABORACION:\n${listadoPasos}`;
+    const textoCompartir = `RECETA FAMILIAR: ${receta.titulo.toUpperCase()}\n` +
+      `${receta.descripcion ? `"${receta.descripcion}"\n` : ''}\n` +
+      `Autor: ${receta.autor_nombre}\n` +
+      `Tiempo: ${formatearMinutos(receta.tiempo_preparacion)}\n` +
+      `${categoriasNombres ? `Categorias: ${categoriasNombres}\n` : ''}\n` +
+      `INGREDIENTES:\n${ingredientesTexto}\n\n` +
+      `ELABORACION:\n${listadoPasos}`;
 
-  try {
-    await Share.share({
-      title: receta.titulo,
-      text: textoCompartir,
-      dialogTitle: 'Compartir receta familiar'
-    });
-  } catch (err) {
-    console.log('Error al invocar el menu de comparticion movil', err);
-  }
-};
+    try {
+      await Share.share({
+        title: receta.titulo,
+        text: textoCompartir,
+        dialogTitle: 'Compartir receta familiar'
+      });
+    } catch (err) {
+      console.log('Error al invocar el menu de comparticion movil', err);
+    }
+  };
 
-  // FUNCION: Exportacion limpia a PDF usando el motor de impresion del dispositivo móvil
-  // Reescritura definitiva de la funcion con el plugin real
   const handleExportarPDF = async () => {
-    // Creamos el bloque HTML limpio con estilos basicos para el PDF
     const estructuraCuerpo = document.querySelector('.printable-area')?.innerHTML || '';
     
     const documentoCompletoHtml = `
@@ -102,17 +99,13 @@ export default function VistaDetalle({
     `;
 
     if (Capacitor.isNativePlatform()) {
-      // Accedemos al objeto global de Cordova que inyecta el plugin en el movil
       const pluginImpresion = (window as any).cordova?.plugins?.printer;
-
       if (pluginImpresion) {
-        // Ejecuta la orden de impresion nativa pasando el HTML estructurado
         pluginImpresion.print(documentoCompletoHtml);
       } else {
         alert('El plugin de impresion no se ha inicializado correctamente en el dispositivo.');
       }
     } else {
-      // Si estas probando en la web del PC, sigue usando el comando del navegador
       window.print();
     }
   };
@@ -120,26 +113,12 @@ export default function VistaDetalle({
   return (
     <div className="absolute inset-0 flex flex-col bg-stone-50 w-full h-full printable-area">
       
-      {/* Estilos CSS inline especificos para la exportacion a PDF mediante impresion */}
       <style>{`
         @media print {
-          body * {
-            visibility: hidden;
-          }
-          .printable-area, .printable-area * {
-            visibility: visible;
-          }
-          .printable-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            background: white;
-            color: black;
-          }
-          .no-print {
-            display: none !important;
-          }
+          body * { visibility: hidden; }
+          .printable-area, .printable-area * { visibility: visible; }
+          .printable-area { position: absolute; left: 0; top: 0; width: 100%; background: white; color: black; }
+          .no-print { display: none !important; }
         }
       `}</style>
 
@@ -147,29 +126,16 @@ export default function VistaDetalle({
         <button onClick={onBack} className="p-1 bg-stone-100 rounded-full"><ArrowLeft className="w-4 h-4" /></button>
         <h2 className="text-xs font-bold text-stone-800 truncate text-left flex-1">{receta.titulo}</h2>
         
-        {/* Boton para compartir por WhatsApp u otras Apps móviles */}
-        <button 
-          onClick={handleCompartirTexto}
-          className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none"
-          title="Compartir receta"
-        >
+        <button onClick={handleCompartirTexto} className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none" title="Compartir receta">
           <Share2 className="w-3.5 h-3.5" />
         </button>
 
-        {/* Boton para exportar a PDF de forma nativa */}
-        <button 
-          onClick={handleExportarPDF}
-          className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none"
-          title="Exportar a PDF"
-        >
+        <button onClick={handleExportarPDF} className="p-1.5 bg-stone-100 text-stone-600 rounded-full hover:bg-stone-200 transition-colors focus:outline-none" title="Exportar a PDF">
           <FileText className="w-3.5 h-3.5" />
         </button>
 
         {esMia && (
-          <button 
-            onClick={() => onBorrarReceta(String(receta.id))} 
-            className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none"
-          >
+          <button onClick={() => onBorrarReceta(String(receta.id))} className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
@@ -211,6 +177,24 @@ export default function VistaDetalle({
 
         {receta.descripcion && <div className="w-full bg-white px-4 py-3 rounded-2xl border border-stone-200 text-[10px] text-stone-600 italic">"{receta.descripcion}"</div>}
 
+        {/* --- SECCIÓN MULTIMEDIA DINÁMICA --- */}
+        {multimedia && multimedia.length > 0 && (
+          <div className="space-y-1 w-full shrink-0 no-print">
+            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Fotos y Tutoriales Adicionales</span>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x w-full">
+              {multimedia.map((item) => (
+                <div key={item.id} className="w-44 aspect-video rounded-xl overflow-hidden border border-stone-200 bg-stone-100 shrink-0 snap-center relative shadow-3xs">
+                  {item.tipo === 'foto' ? (
+                    <img src={item.url} alt="Contenido adicional" className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={item.url} controls className="w-full h-full object-cover bg-black" playsInline />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {receta.secreto_familiar && (
           <div className="space-y-1 w-full shrink-0">
             <span className="text-[9px] font-bold text-amber-700 uppercase block">Secreto Familiar Oculto</span>
@@ -239,21 +223,16 @@ export default function VistaDetalle({
           </div>
         </div>
 
-        {/* Formulario de comentarios y listado de anecdotas marcado como 'no-print' */}
         <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
           <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
           {!esMia && (
             <form onSubmit={handleEnviarReseña} className="bg-amber-50/40 p-3 rounded-2xl border border-amber-200/50 flex flex-col gap-2.5 w-full shadow-3xs">
               <div className="flex justify-between items-center w-full">
-                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoracion:</span>
-                
+                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoración:</span>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((num) => (
-                    <button
-                      type="button" key={num} onClick={() => setInputRating(num)}
-                      className="focus:outline-none transition-transform active:scale-90"
-                    >
+                    <button type="button" key={num} onClick={() => setInputRating(num)} className="focus:outline-none transition-transform active:scale-90">
                       <Star className={`w-3.5 h-3.5 ${num <= inputRating ? 'text-amber-500 fill-amber-500' : 'text-stone-300'}`} />
                     </button>
                   ))}
@@ -261,15 +240,8 @@ export default function VistaDetalle({
               </div>
 
               <div className="flex gap-1.5 items-center w-full">
-                <input
-                  type="text" required placeholder="Ej: Me quedo cremosisimo, tia! Anade un..."
-                  value={inputComentario} onChange={(e) => setInputComentario(e.target.value)}
-                  className="flex-1 bg-white border border-stone-200 px-3 py-1.5 rounded-xl text-[10px] outline-none shadow-3xs"
-                />
-                <button
-                  type="submit" disabled={enviando}
-                  className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-md transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
-                >
+                <input type="text" required placeholder="Ej: Me quedo cremosisimo, tia! Anade un..." value={inputComentario} onChange={(e) => setInputComentario(e.target.value)} className="flex-1 bg-white border border-stone-200 px-3 py-1.5 rounded-xl text-[10px] outline-none shadow-3xs" />
+                <button type="submit" disabled={enviando} className="p-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-md transition-colors shrink-0 disabled:opacity-50 cursor-pointer">
                   <Send className="w-3.5 h-3.5 stroke-[2.5]" />
                 </button>
               </div>
@@ -288,7 +260,7 @@ export default function VistaDetalle({
                 </div>
               ))
             ) : (
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavia.</div>
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavía.</div>
             )}
           </div>
         </div>

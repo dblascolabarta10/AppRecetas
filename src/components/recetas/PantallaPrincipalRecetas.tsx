@@ -10,7 +10,10 @@ import VistaDetalle from './VistaDetalle';
 import VistaCrear from './VistaCrear';
 import PanelFiltros from './PanelFiltros';
 import VistaAuth from './VistaAuth'; 
-import ModalConfirmacion from './ModalConfirmacion'; // <-- Importamos el nuevo modal chulo
+import ModalConfirmacion from './ModalConfirmacion'; 
+
+// Importación del servicio de subida multimedia masiva
+import { subirMultimediaReceta } from '../../services/recetasMultimedia';
 
 export default function PantallaPrincipalRecetas() {
   const [session, setSession] = useState<any>(null);
@@ -31,7 +34,10 @@ export default function PantallaPrincipalRecetas() {
     return local ? JSON.parse(local) : [];
   });
 
-  // ---  ESTADO CENTRAL DEL MODAL DE CONFIRMACIÓN ---
+  // NUEVOS ESTADOS CENTRALIZADOS PARA MULTIMEDIA
+  const [archivosMultimedia, setArchivosMultimedia] = useState<any[]>([]);
+  const [multimediaReceta, setMultimediaReceta] = useState<any[]>([]);
+
   const [modalConfirm, setModalConfirm] = useState<{
     isOpen: boolean;
     titulo: string;
@@ -171,7 +177,23 @@ export default function PantallaPrincipalRecetas() {
     }
   };
 
-  // Ejecucion del borrado real tras la confirmacion en el modal
+  // NUEVA FUNCIÓN: Descarga las URLs multimedia adjuntas a la receta abierta
+  const fetchMultimediaReceta = async (recetaId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('recetas_multimedia')
+        .select('*')
+        .eq('receta_id', recetaId)
+        .order('orden', { ascending: true });
+
+      if (error) throw error;
+      setMultimediaReceta(data || []);
+    } catch (err) {
+      console.error('Error al bajar multimedia:', err);
+      setMultimediaReceta([]);
+    }
+  };
+
   const ejecutarBorradoBaseDatos = async (id: string) => {
     try {
       const { error } = await supabase.from('recetas').delete().eq('id', id);
@@ -189,12 +211,11 @@ export default function PantallaPrincipalRecetas() {
     }
   };
 
-  // Disparador del modal chulo para borrar recetas
   const handleBorrarRecetaClick = (id: string) => {
     setModalConfirm({
       isOpen: true,
       titulo: 'Eliminar Receta',
-      mensaje: '¿Seguro que quieres borrar este plato? Se eliminara del recetario familiar de forma permanente.',
+      mensaje: '¿Seguro que quieres borrar este plato? Se eliminará del recetario familiar de forma permanente.',
       tipo: 'danger',
       onConfirm: () => ejecutarBorradoBaseDatos(id)
     });
@@ -228,7 +249,8 @@ export default function PantallaPrincipalRecetas() {
       
       const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
 
-      const { error } = await supabase.from('recetas').insert([
+      // MODIFICADO: Añadido select().single() para capturar el ID devuelto por Supabase en caliente
+      const { data: nuevaReceta, error } = await supabase.from('recetas').insert([
         {
           titulo: tituloForm.trim(),
           descripcion: descripcionForm.trim() || null, 
@@ -242,15 +264,22 @@ export default function PantallaPrincipalRecetas() {
           familiar_id: currentFamiliarId,
           categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
         }
-      ]);
+      ]).select().single();
 
       if (error) throw error;
-      setSuccessToast('Receta guardada con exito');
+
+      // SI HAY MULTIMEDIA EXTRA, DISPARAMOS LA SUBIDA RELACIONAL AHORA MISMO
+      if (archivosMultimedia.length > 0 && nuevaReceta) {
+        await subirMultimediaReceta(nuevaReceta.id, archivosMultimedia);
+      }
+
+      setSuccessToast('Receta guardada con éxito');
       await fetchData();
 
       setTituloForm(''); setDescripcionForm(''); setIngredientesListForm(['']); setPasosListForm(['']);
       setCategoriasFormMúltiples([]); setImagenPreview(null); setTiempoHorasForm(0); setTiempoMinutosForm(30);
       setSecretoForm(''); setEsPrivadaForm(false);
+      setArchivosMultimedia([]); // Limpiamos el estado multimedia
       setCurrentScreen('list');
       setTimeout(() => setSuccessToast(null), 3000);
     } catch (err: any) {
@@ -272,7 +301,7 @@ export default function PantallaPrincipalRecetas() {
         }
       ]);
       if (error) throw error;
-      setSuccessToast('Comentario anadido');
+      setSuccessToast('Comentario añadido');
       await fetchComentariosReceta(String(selectedReceta.id));
       await fetchData(); 
       setTimeout(() => setSuccessToast(null), 3000);
@@ -352,13 +381,11 @@ export default function PantallaPrincipalRecetas() {
                       recetas={recetasFiltradas} loading={loading} searchQuery={searchQuery} setSearchQuery={setSearchQuery}
                       activeTab={activeTab} currentFamiliarId={currentFamiliarId}
                       savedRecetasIds={savedRecetasIds} mapaCategorias={mapaCategorias}
-                      onBorrarReceta={handleBorrarRecetaClick} // Enlazamos al disparador del modal
+                      onBorrarReceta={handleBorrarRecetaClick} 
                       onToggleSave={(e, id) => {
                         e.stopPropagation();
                         const estaGuardada = savedRecetasIds.includes(String(id));
-                        
                         if (estaGuardada) {
-                          //  PROCESO REACTIVO CON EL MODAL MODERNO PARA QUITAR MARCADORES
                           setModalConfirm({
                             isOpen: true,
                             titulo: 'Quitar Marcador',
@@ -376,6 +403,7 @@ export default function PantallaPrincipalRecetas() {
                         setSelectedReceta(r); 
                         setCurrentScreen('detail'); 
                         fetchComentariosReceta(String(r.id));
+                        fetchMultimediaReceta(String(r.id)); // <-- Llamada añadida
                       }}
                       onOpenFilters={() => setIsFilterPanelOpen(true)} onGoToCreate={() => setCurrentScreen('create')}
                     />
@@ -388,7 +416,7 @@ export default function PantallaPrincipalRecetas() {
 
                       <button type="button" onClick={() => setActiveTab('mine')} className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeTab === 'mine' ? 'text-white font-black scale-105' : 'opacity-70'}`}>
                         <ChefHat className="w-4 h-4 mb-0.5" />
-                        <span className="text-[9px] uppercase tracking-wider">Mias</span>
+                        <span className="text-[9px] uppercase tracking-wider">Mías</span>
                       </button>
 
                       <button type="button" onClick={() => setActiveTab('search')} className={`flex flex-col items-center justify-center flex-1 h-full transition-all ${activeTab === 'search' ? 'text-white font-black scale-105' : 'opacity-70'}`}>
@@ -404,7 +432,8 @@ export default function PantallaPrincipalRecetas() {
                     receta={selectedReceta} comentarios={comentarios} onBack={() => setCurrentScreen('list')}
                     mapaCategorias={mapaCategorias} currentFamiliarId={currentFamiliarId}
                     onAñadirComentario={handleAñadirComentario}
-                    onBorrarReceta={handleBorrarRecetaClick} // Enlazamos al disparador del modal
+                    onBorrarReceta={handleBorrarRecetaClick} 
+                    multimedia={multimediaReceta} // <-- Pasamos el listado multimedia de la base de datos
                     renderEstrellasComentario={(n) => (
                       <div className="flex gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -429,6 +458,8 @@ export default function PantallaPrincipalRecetas() {
                     addPasoField={() => setPasosListForm([...pasosListForm, ''])}
                     imagenPreview={imagenPreview} handleImagenChange={(e) => { const f = e.target.files?.[0]; if (f) setImagenPreview(URL.createObjectURL(f)); }}
                     isSaving={isSaving} obtenerColorCirculo={obtenerColorCirculo}
+                    archivosMultimedia={archivosMultimedia} // <-- Pasamos el estado de selección
+                    setArchivosMultimedia={setArchivosMultimedia} // <-- Pasamos el modificador
                   />
                 )}
 
@@ -445,7 +476,6 @@ export default function PantallaPrincipalRecetas() {
             )}
           </div>
 
-          {/*  INYECCIÓN DE LA VENTANA EMERGENTE MAJESTUOSA EN EL FLUJO */}
           <ModalConfirmacion 
             isOpen={modalConfirm.isOpen}
             titulo={modalConfirm.titulo}
