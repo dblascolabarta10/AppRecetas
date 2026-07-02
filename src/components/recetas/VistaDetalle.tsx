@@ -17,7 +17,7 @@ interface Props {
   onAñadirComentario: (puntuacion: number, comentario: string) => Promise<void>;
   onBorrarReceta: (id: string) => Promise<void>;
   renderEstrellasComentario: (n: number) => React.ReactNode;
-  multimedia: any[]; // <-- Añadido prop
+  multimedia: any[]; // Prop relacional de multimedia
 }
 
 export default function VistaDetalle({ 
@@ -110,6 +110,20 @@ export default function VistaDetalle({
     }
   };
 
+  const handleEnviarReseña = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputComentario.trim() || enviando) return;
+    setEnviando(true);
+    try {
+      await onAñadirComentario(inputRating, inputComentario);
+      setInputComentario('');
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   return (
     <div className="absolute inset-0 flex flex-col bg-stone-50 w-full h-full printable-area">
       
@@ -177,24 +191,6 @@ export default function VistaDetalle({
 
         {receta.descripcion && <div className="w-full bg-white px-4 py-3 rounded-2xl border border-stone-200 text-[10px] text-stone-600 italic">"{receta.descripcion}"</div>}
 
-        {/* --- SECCIÓN MULTIMEDIA DINÁMICA --- */}
-        {multimedia && multimedia.length > 0 && (
-          <div className="space-y-1 w-full shrink-0 no-print">
-            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Fotos y Tutoriales Adicionales</span>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none snap-x w-full">
-              {multimedia.map((item) => (
-                <div key={item.id} className="w-44 aspect-video rounded-xl overflow-hidden border border-stone-200 bg-stone-100 shrink-0 snap-center relative shadow-3xs">
-                  {item.tipo === 'foto' ? (
-                    <img src={item.url} alt="Contenido adicional" className="w-full h-full object-cover" />
-                  ) : (
-                    <video src={item.url} controls className="w-full h-full object-cover bg-black" playsInline />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {receta.secreto_familiar && (
           <div className="space-y-1 w-full shrink-0">
             <span className="text-[9px] font-bold text-amber-700 uppercase block">Secreto Familiar Oculto</span>
@@ -208,7 +204,7 @@ export default function VistaDetalle({
         </div>
 
         <div className="space-y-1 w-full shrink-0">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboracion</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboración</span>
           <div className="space-y-2.5 w-full">
             {pasosArray.length > 0 ? (
               pasosArray.map((paso, i) => (
@@ -223,6 +219,7 @@ export default function VistaDetalle({
           </div>
         </div>
 
+        {/* Sección de comentarios nativos */}
         <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
           <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
@@ -264,6 +261,25 @@ export default function VistaDetalle({
             )}
           </div>
         </div>
+
+        {/* --- NUEVA UBICACIÓN MULTIMEDIA: FIN ABSOLUTO EN FORMATO VERTICAL --- */}
+        {multimedia && multimedia.length > 0 && (
+          <div className="space-y-2 w-full shrink-0 pt-4 border-t border-stone-200/60 no-print">
+            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Galería y Vídeos Tutoriales</span>
+            <div className="space-y-3 w-full">
+              {multimedia.map((item) => (
+                <div key={item.id} className="w-full aspect-video rounded-2xl overflow-hidden border border-stone-200 bg-stone-100 shadow-3xs relative">
+                  {item.tipo === 'foto' ? (
+                    <img src={item.url} alt="Contenido adicional" className="w-full h-full object-cover" />
+                  ) : (
+                    <video src={item.url} controls className="w-full h-full object-cover bg-black" playsInline />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
