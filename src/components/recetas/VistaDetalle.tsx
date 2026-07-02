@@ -1,6 +1,5 @@
-// src/components/recetas/VistaDetalle.tsx
 import React, { useState } from 'react';
-import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star, Trash2, Share2, FileText } from 'lucide-react';
+import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star, Trash2, Share2, FileText, Pencil } from 'lucide-react';
 import { Receta, ComentarioFamiliar } from '../../types/recetas';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core'; 
@@ -15,13 +14,14 @@ interface Props {
   mapaCategorias: Record<string, string>;
   currentFamiliarId: string;
   onAñadirComentario: (puntuacion: number, comentario: string) => Promise<void>;
-  onBorrarReceta: (id: string) => Promise<void>;
+  onBorrarReceta: (id: string) => void;
   renderEstrellasComentario: (n: number) => React.ReactNode;
-  multimedia: any[]; // Prop relacional de multimedia
+  multimedia: any[];
+  onEditarReceta: () => void;
 }
 
 export default function VistaDetalle({ 
-  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, onBorrarReceta, renderEstrellasComentario, multimedia 
+  receta, comentarios, onBack, mapaCategorias, currentFamiliarId, onAñadirComentario, onBorrarReceta, renderEstrellasComentario, multimedia, onEditarReceta 
 }: Props) {
   
   const rawInstrucciones = receta.instrucciones || '';
@@ -149,9 +149,14 @@ export default function VistaDetalle({
         </button>
 
         {esMia && (
-          <button onClick={() => onBorrarReceta(String(receta.id))} className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex gap-1.5 shrink-0">
+            <button onClick={onEditarReceta} className="p-1.5 bg-amber-50 text-amber-600 rounded-full border border-amber-200 hover:bg-amber-100 transition-colors focus:outline-none" title="Editar receta">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => onBorrarReceta(String(receta.id))} className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none" title="Eliminar receta">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </header>
 
@@ -204,7 +209,7 @@ export default function VistaDetalle({
         </div>
 
         <div className="space-y-1 w-full shrink-0">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboración</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-amber-500" /> Elaboracion</span>
           <div className="space-y-2.5 w-full">
             {pasosArray.length > 0 ? (
               pasosArray.map((paso, i) => (
@@ -219,14 +224,13 @@ export default function VistaDetalle({
           </div>
         </div>
 
-        {/* Sección de comentarios nativos */}
         <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
           <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
           {!esMia && (
             <form onSubmit={handleEnviarReseña} className="bg-amber-50/40 p-3 rounded-2xl border border-amber-200/50 flex flex-col gap-2.5 w-full shadow-3xs">
               <div className="flex justify-between items-center w-full">
-                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoración:</span>
+                <span className="text-[9px] font-black uppercase text-amber-800 tracking-wide">Dejar nota o valoracion:</span>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((num) => (
                     <button type="button" key={num} onClick={() => setInputRating(num)} className="focus:outline-none transition-transform active:scale-90">
@@ -257,12 +261,11 @@ export default function VistaDetalle({
                 </div>
               ))
             ) : (
-              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavía.</div>
+              <div className="bg-white p-4 rounded-2xl border border-stone-200 text-center text-[9px] text-stone-400 italic w-full">Nadie ha comentado todavia.</div>
             )}
           </div>
         </div>
 
-        {/* --- NUEVA UBICACIÓN MULTIMEDIA: FIN ABSOLUTO EN FORMATO VERTICAL --- */}
         {multimedia && multimedia.length > 0 && (
           <div className="space-y-2 w-full shrink-0 pt-4 border-t border-stone-200/60 no-print">
             <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Galería y Vídeos Tutoriales</span>
@@ -279,7 +282,6 @@ export default function VistaDetalle({
             </div>
           </div>
         )}
-
       </div>
     </div>
   );

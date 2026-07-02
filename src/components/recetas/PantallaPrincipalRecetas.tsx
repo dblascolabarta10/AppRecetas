@@ -17,7 +17,7 @@ export default function PantallaPrincipalRecetas() {
   const [session, setSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState<boolean>(true);
 
-  const [currentScreen, setCurrentScreen] = useState<'list' | 'detail' | 'create'>('list');
+  const [currentScreen, setCurrentScreen] = useState<'list' | 'detail' | 'create' | 'edit'>('list');
   const [selectedReceta, setSelectedReceta] = useState<Receta | null>(null);
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'saved' | 'mine' | 'search'>('mine');
@@ -126,7 +126,7 @@ export default function PantallaPrincipalRecetas() {
         .select(`
           id, titulo, descripcion, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media,
           familiares ( nombre ),
-          receta_ingredientes ( quantity:cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
+          receta_ingredientes ( cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
           comentarios_valoraciones ( id )
         `)
         .order('fecha_creacion', { ascending: false });
@@ -192,6 +192,41 @@ export default function PantallaPrincipalRecetas() {
     }
   };
 
+  const handlePrellenarFormEdicion = (receta: Receta) => {
+    const inst = receta.instrucciones || '';
+    let ings: string[] = [];
+    let pasos: string[] = [];
+
+    if (inst.includes('[PASOS]')) {
+      const partesPasos = inst.split('[PASOS]');
+      const bloquePasos = partesPasos[1] || '';
+      pasos = bloquePasos.split('\n').map(p => p.replace(/^\d+\.\s?/, '').trim()).filter(Boolean);
+      
+      const bloquePrevio = partesPasos[0];
+      if (bloquePrevio.includes('[INGREDIENTES]')) {
+        const ingBloque = bloquePrevio.split('[INGREDIENTES]')[1] || '';
+        ings = ingBloque.split('\n').map(i => i.replace(/^-\s*/, '').trim()).filter(Boolean);
+      }
+    } else {
+      pasos = inst.split('\n').map(p => p.trim()).filter(Boolean);
+    }
+
+    setTituloForm(receta.titulo);
+    setDescripcionForm(receta.descripcion || '');
+    setEsPrivadaForm(receta.es_privada);
+    setSecretoForm(receta.secreto_familiar || '');
+    setTiempoHorasForm(Math.floor(receta.tiempo_preparacion / 60));
+    setTiempoMinutosForm(receta.tiempo_preparacion % 60);
+    setDificultadForm(receta.dificultad);
+    setCategoriasFormMúltiples(receta.categorias_ids || []);
+    setIngredientesListForm(ings.length > 0 ? ings : ['']);
+    setPasosListForm(pasos.length > 0 ? pasos : ['']);
+    setImagenPreview(receta.imagen_url || null);
+    setImagenFile(null);
+    setArchivosMultimedia([]);
+    setCurrentScreen('edit');
+  };
+
   const ejecutarBorradoBaseDatos = async (id: string) => {
     try {
       const { error } = await supabase.from('recetas').delete().eq('id', id);
@@ -243,9 +278,9 @@ export default function PantallaPrincipalRecetas() {
       const totalMinutosCalculados = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
       const ingredientesString = ingFiltrados.map(i => `- ${i.trim()}`).join('\n');
       const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
-      const categoriasString = categoriasFormMúltiples.join(',');
+      const GridCategoriasString = categoriasFormMúltiples.join(',');
       
-      let urlPortadaDefinitiva = null;
+      let urlPortadaDefinitiva = imagenPreview; 
 
       if (imagenFile) {
         const extension = imagenFile.name.split('.').pop();
@@ -265,31 +300,48 @@ export default function PantallaPrincipalRecetas() {
         urlPortadaDefinitiva = urlData.publicUrl;
       }
 
-      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
+      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${GridCategoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
 
-      const { data: nuevaReceta, error } = await supabase.from('recetas').insert([
-        {
+      let respuestaQuery;
+
+      if (currentScreen === 'edit' && selectedReceta) {
+        respuestaQuery = await supabase.from('recetas').update({
           titulo: tituloForm.trim(),
           descripcion: descripcionForm.trim() || null, 
           instrucciones: instruccionesEmpaquetadas,
           tiempo_preparacion: totalMinutosCalculados,
-          tiempo_coccion: 0,
-          imagen_url: urlPortadaDefinitiva || null, 
+          imagen_url: urlPortadaDefinitiva, 
           dificultad: Number(dificultadForm),
           secreto_familiar: secretoForm.trim() || null,
           es_privada: esPrivadaForm,
-          familiar_id: currentFamiliarId,
           categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
-        }
-      ]).select().single();
+        }).eq('id', selectedReceta.id).select().single();
+      } else {
+        respuestaQuery = await supabase.from('recetas').insert([
+          {
+            titulo: tituloForm.trim(),
+            descripcion: descripcionForm.trim() || null, 
+            instrucciones: instruccionesEmpaquetadas,
+            tiempo_preparacion: totalMinutosCalculados,
+            tiempo_coccion: 0,
+            imagen_url: urlPortadaDefinitiva || null, 
+            dificultad: Number(dificultadForm),
+            secreto_familiar: secretoForm.trim() || null,
+            es_privada: esPrivadaForm,
+            familiar_id: currentFamiliarId,
+            categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
+          }
+        ]).select().single();
+      }
 
+      const { data: nuevaReceta, error } = respuestaQuery;
       if (error) throw error;
 
       if (archivosMultimedia.length > 0 && nuevaReceta) {
         await subirMultimediaReceta(nuevaReceta.id, archivosMultimedia);
       }
 
-      setSuccessToast('Receta guardada con éxito');
+      setSuccessToast(currentScreen === 'edit' ? 'Receta actualizada con éxito' : 'Receta guardada con éxito');
       await fetchData();
 
       setTituloForm(''); setDescripcionForm(''); setIngredientesListForm(['']); setPasosListForm(['']);
@@ -297,6 +349,7 @@ export default function PantallaPrincipalRecetas() {
       setSecretoForm(''); setEsPrivadaForm(false);
       setArchivosMultimedia([]); 
       setImagenFile(null);
+      setSelectedReceta(null);
       setCurrentScreen('list');
       setTimeout(() => setSuccessToast(null), 3000);
     } catch (err: any) {
@@ -451,6 +504,7 @@ export default function PantallaPrincipalRecetas() {
                     onAñadirComentario={handleAñadirComentario}
                     onBorrarReceta={handleBorrarRecetaClick} 
                     multimedia={multimediaReceta} 
+                    onEditarReceta={() => handlePrellenarFormEdicion(selectedReceta)}
                     renderEstrellasComentario={(n) => (
                       <div className="flex gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -464,6 +518,26 @@ export default function PantallaPrincipalRecetas() {
                 {currentScreen === 'create' && (
                   <VistaCrear
                     onBack={() => setCurrentScreen('list')} onSubmit={handleGuardarReceta}
+                    tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
+                    esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
+                    tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
+                    dificultadForm={dificultadForm} setDificultadForm={setDificultadForm} categorias={categorias} categoriasFormMúltiples={categoriasFormMúltiples}
+                    onToggleFormCategory={(id) => setCategoriasFormMúltiples(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 3 ? p : [...p, id])}
+                    ingredientesListForm={ingredientesListForm} handleIngredientChange={(i, v) => { const c = [...ingredientesListForm]; c[i] = v; setIngredientesListForm(c); }}
+                    addIngredientField={() => setIngredientesListForm([...ingredientesListForm, ''])}
+                    pasosListForm={pasosListForm} handlePasoChange={(i, v) => { const c = [...pasosListForm]; c[i] = v; setPasosListForm(c); }}
+                    addPasoField={() => setPasosListForm([...pasosListForm, ''])}
+                    imagenPreview={imagenPreview} handleImagenChange={(e) => { const f = e.target.files?.[0]; if (f) { setImagenFile(f); setImagenPreview(URL.createObjectURL(f)); } }}
+                    isSaving={isSaving} obtenerColorCirculo={obtenerColorCirculo}
+                    archivosMultimedia={archivosMultimedia} 
+                    setArchivosMultimedia={setArchivosMultimedia} 
+                  />
+                )}
+
+                {currentScreen === 'edit' && (
+                  <VistaCrear
+                    isEditing={true}
+                    onBack={() => setCurrentScreen('detail')} onSubmit={handleGuardarReceta}
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
                     tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
