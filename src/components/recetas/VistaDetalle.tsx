@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star, Trash2, Share2, FileText, Pencil } from 'lucide-react';
+import { ArrowLeft, Clock, Utensils, BookOpen, ChefHat, Send, Star, Trash2, Share2, FileText, Pencil, Minus, Plus } from 'lucide-react';
 import { Receta, ComentarioFamiliar } from '../../types/recetas';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core'; 
@@ -41,6 +41,11 @@ export default function VistaDetalle({
     pasosArray = rawInstrucciones.split('\n').map(p => p.trim()).filter(p => p.length > 0);
   }
 
+  // CONFIGURACIÓN DEL ESCALADOR DINÁMICO SOBRE TEXTO PLANO
+  const porcionesBase = receta.porciones || 4;
+  const [porcionesDeseadas, setPorcionesDeseadas] = useState<number>(porcionesBase);
+  const factorEscala = porcionesDeseadas / porcionesBase;
+
   const [inputRating, setInputRating] = useState<number>(5);
   const [inputComentario, setInputComentario] = useState<string>('');
   const [enviando, setEnviando] = useState<boolean>(false);
@@ -56,6 +61,7 @@ export default function VistaDetalle({
     const textoCompartir = `RECETA FAMILIAR: ${receta.titulo.toUpperCase()}\n` +
       `${receta.descripcion ? `"${receta.descripcion}"\n` : ''}\n` +
       `Autor: ${receta.autor_nombre}\n` +
+      `Porciones: ${porcionesDeseadas} (Original: ${porcionesBase})\n` +
       `Tiempo: ${formatearMinutos(receta.tiempo_preparacion)}\n` +
       `${categoriasNombres ? `Categorias: ${categoriasNombres}\n` : ''}\n` +
       `INGREDIENTES:\n${ingredientesTexto}\n\n` +
@@ -154,7 +160,7 @@ export default function VistaDetalle({
               <Pencil className="w-3.5 h-3.5" />
             </button>
             <button onClick={() => onBorrarReceta(String(receta.id))} className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none" title="Eliminar receta">
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
             </button>
           </div>
         )}
@@ -203,9 +209,27 @@ export default function VistaDetalle({
           </div>
         )}
 
+        {/* SELECTOR INTERACTIVO DE PORCIONES */}
         <div className="space-y-1 w-full shrink-0">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1"><Utensils className="w-3 h-3 text-amber-500" /> Ingredientes</span>
-          <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full whitespace-pre-wrap leading-relaxed">{ingredientesTexto}</div>
+          <div className="flex justify-between items-center w-full pb-1">
+            <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1">
+              <Utensils className="w-3 h-3 text-amber-500" /> Ingredientes
+            </span>
+            <div className="flex items-center gap-1.5 bg-white px-2 py-0.5 rounded-xl border border-stone-200 shadow-3xs no-print">
+              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.max(1, p - 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90"><Minus className="w-2.5 h-2.5 stroke-[2.5]" /></button>
+              <span className="text-[9px] font-mono font-black text-stone-700 px-1">{porcionesDeseadas} {porcionesDeseadas === 1 ? 'Porción' : 'Porciones'}</span>
+              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.min(50, p + 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90"><Plus className="w-2.5 h-2.5 stroke-[2.5]" /></button>
+            </div>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full whitespace-pre-wrap leading-relaxed relative">
+            {factorEscala !== 1 && (
+              <div className="absolute top-2 right-3 text-[7px] font-mono font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded-md animate-pulse">
+                Cantidades x{factorEscala.toFixed(1)}
+              </div>
+            )}
+            {ingredientesTexto}
+          </div>
         </div>
 
         <div className="space-y-1 w-full shrink-0">
@@ -225,7 +249,7 @@ export default function VistaDetalle({
         </div>
 
         <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">An anycdotas de la Familia</span>
           
           {!esMia && (
             <form onSubmit={handleEnviarReseña} className="bg-amber-50/40 p-3 rounded-2xl border border-amber-200/50 flex flex-col gap-2.5 w-full shadow-3xs">

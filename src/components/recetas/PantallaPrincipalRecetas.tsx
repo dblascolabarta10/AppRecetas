@@ -66,6 +66,7 @@ export default function PantallaPrincipalRecetas() {
   const [pasosListForm, setPasosListForm] = useState<string[]>(['']);
   const [tiempoHorasForm, setTiempoHorasForm] = useState<number>(0);
   const [tiempoMinutosForm, setTiempoMinutosForm] = useState<number>(30);
+  const [porcionesForm, setPorcionesForm] = useState<number>(4);
   const [dificultadForm, setDificultadForm] = useState<number>(3);
   const [categoriasFormMúltiples, setCategoriasFormMúltiples] = useState<string[]>([]);
   const [imagenPreview, setImagenPreview] = useState<string | null>(null);
@@ -73,6 +74,12 @@ export default function PantallaPrincipalRecetas() {
   const [esPrivadaForm, setEsPrivadaForm] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  const mapaCategorias = useMemo(() => {
+    const obj: Record<string, string> = {};
+    categorias.forEach(c => { obj[c.id] = c.nombre; });
+    return obj;
+  }, [categorias]);
 
   useEffect(() => {
     localStorage.setItem('recetas_guardadas_familia', JSON.stringify(savedRecetasIds));
@@ -124,7 +131,7 @@ export default function PantallaPrincipalRecetas() {
       const { data: recs } = await supabase
         .from('recetas')
         .select(`
-          id, titulo, descripcion, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media,
+          id, titulo, descripcion, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media, porciones,
           familiares ( nombre ),
           receta_ingredientes ( cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
           comentarios_valoraciones ( id )
@@ -140,7 +147,7 @@ export default function PantallaPrincipalRecetas() {
             const partesCat = inst.split('[INGREDIENTES]');
             const bloqueCat = partesCat[0].replace('[CATEGORIAS]', '').trim();
             if (bloqueCat) {
-              finalCategories = bloqueCat.split(',').filter((id: string) => id.length > 0);
+              finalCategories = blockCat.split(',').filter((id: string) => id.length > 0);
             }
           }
 
@@ -217,6 +224,7 @@ export default function PantallaPrincipalRecetas() {
     setSecretoForm(receta.secreto_familiar || '');
     setTiempoHorasForm(Math.floor(receta.tiempo_preparacion / 60));
     setTiempoMinutosForm(receta.tiempo_preparacion % 60);
+    setPorcionesForm(receta.porciones || 4);
     setDificultadForm(receta.dificultad);
     setCategoriasFormMúltiples(receta.categorias_ids || []);
     setIngredientesListForm(ings.length > 0 ? ings : ['']);
@@ -254,16 +262,6 @@ export default function PantallaPrincipalRecetas() {
     });
   };
 
-  useEffect(() => {
-    if (session?.user) fetchData();
-  }, [session, activeTab]);
-
-  const mapaCategorias = useMemo(() => {
-    const obj: Record<string, string> = {};
-    categorias.forEach(c => { obj[c.id] = c.nombre; });
-    return obj;
-  }, [categorias]);
-
   const handleGuardarReceta = async (e: React.FormEvent) => {
     e.preventDefault();
     const ingFiltrados = ingredientesListForm.filter(i => i.trim() !== '');
@@ -278,8 +276,10 @@ export default function PantallaPrincipalRecetas() {
       const totalMinutosCalculados = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
       const ingredientesString = ingFiltrados.map(i => `- ${i.trim()}`).join('\n');
       const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
-      const GridCategoriasString = categoriasFormMúltiples.join(',');
+      const categoriasString = categoriasFormMúltiples.join(',');
       
+      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
+
       let urlPortadaDefinitiva = imagenPreview; 
 
       if (imagenFile) {
@@ -300,8 +300,6 @@ export default function PantallaPrincipalRecetas() {
         urlPortadaDefinitiva = urlData.publicUrl;
       }
 
-      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${GridCategoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
-
       let respuestaQuery;
 
       if (currentScreen === 'edit' && selectedReceta) {
@@ -310,6 +308,7 @@ export default function PantallaPrincipalRecetas() {
           descripcion: descripcionForm.trim() || null, 
           instrucciones: instruccionesEmpaquetadas,
           tiempo_preparacion: totalMinutosCalculados,
+          porciones: Number(porcionesForm),
           imagen_url: urlPortadaDefinitiva, 
           dificultad: Number(dificultadForm),
           secreto_familiar: secretoForm.trim() || null,
@@ -324,6 +323,7 @@ export default function PantallaPrincipalRecetas() {
             instrucciones: instruccionesEmpaquetadas,
             tiempo_preparacion: totalMinutosCalculados,
             tiempo_coccion: 0,
+            porciones: Number(porcionesForm),
             imagen_url: urlPortadaDefinitiva || null, 
             dificultad: Number(dificultadForm),
             secreto_familiar: secretoForm.trim() || null,
@@ -346,6 +346,7 @@ export default function PantallaPrincipalRecetas() {
 
       setTituloForm(''); setDescripcionForm(''); setIngredientesListForm(['']); setPasosListForm(['']);
       setCategoriasFormMúltiples([]); setImagenPreview(null); setTiempoHorasForm(0); setTiempoMinutosForm(30);
+      setPorcionesForm(4);
       setSecretoForm(''); setEsPrivadaForm(false);
       setArchivosMultimedia([]); 
       setImagenFile(null);
@@ -521,6 +522,7 @@ export default function PantallaPrincipalRecetas() {
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
                     tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
+                    porcionesForm={porcionesForm} setPorcionesForm={setPorcionesForm}
                     dificultadForm={dificultadForm} setDificultadForm={setDificultadForm} categorias={categorias} categoriasFormMúltiples={categoriasFormMúltiples}
                     onToggleFormCategory={(id) => setCategoriasFormMúltiples(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 3 ? p : [...p, id])}
                     ingredientesListForm={ingredientesListForm} handleIngredientChange={(i, v) => { const c = [...ingredientesListForm]; c[i] = v; setIngredientesListForm(c); }}
@@ -541,6 +543,7 @@ export default function PantallaPrincipalRecetas() {
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
                     tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
+                    porcionesForm={porcionesForm} setPorcionesForm={setPorcionesForm}
                     dificultadForm={dificultadForm} setDificultadForm={setDificultadForm} categorias={categorias} categoriasFormMúltiples={categoriasFormMúltiples}
                     onToggleFormCategory={(id) => setCategoriasFormMúltiples(p => p.includes(id) ? p.filter(x => x !== id) : p.length >= 3 ? p : [...p, id])}
                     ingredientesListForm={ingredientesListForm} handleIngredientChange={(i, v) => { const c = [...ingredientesListForm]; c[i] = v; setIngredientesListForm(c); }}
@@ -567,7 +570,7 @@ export default function PantallaPrincipalRecetas() {
             )}
           </div>
 
-          <ModalConfirmacion 
+          <ModalConfirmacion \
             isOpen={modalConfirm.isOpen}
             titulo={modalConfirm.titulo}
             mensaje={modalConfirm.mensaje}

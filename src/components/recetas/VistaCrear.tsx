@@ -12,6 +12,7 @@ interface Props {
   secretoForm: string; setSecretoForm: (s: string) => void;
   tiempoHorasForm: number; setTiempoHorasForm: (n: number) => void;
   tiempoMinutosForm: number; setTiempoMinutosForm: (n: number) => void;
+  porcionesForm: number; setPorcionesForm: (n: number) => void;
   dificultadForm: number; setDificultadForm: (n: number) => void;
   categorias: Categoria[];
   categoriasFormMúltiples: string[];
@@ -34,7 +35,7 @@ interface Props {
 export default function VistaCrear({
   onBack, onSubmit, tituloForm, setTituloForm, descripcionForm, setDescripcionForm,
   esPrivadaForm, setEsPrivadaForm, secretoForm, setSecretoForm, tiempoHorasForm, setTiempoHorasForm,
-  tiempoMinutosForm, setTiempoMinutosForm, dificultadForm, setDificultadForm, categorias,
+  tiempoMinutosForm, setTiempoMinutosForm, porcionesForm, setPorcionesForm, dificultadForm, setDificultadForm, categorias,
   categoriasFormMúltiples, onToggleFormCategory, ingredientesListForm, handleIngredientChange,
   addIngredientField, pasosListForm, handlePasoChange, addPasoField, imagenPreview, handleImagenChange, 
   isSaving, obtenerColorCirculo, archivosMultimedia, setArchivosMultimedia, isEditing = false }: Props) {
@@ -59,14 +60,18 @@ export default function VistaCrear({
         
         <input type="text" placeholder="Secreto familiar (Opcional)" value={secretoForm} onChange={(e) => setSecretoForm(e.target.value)} className="w-full bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none shadow-3xs font-mono text-amber-900" />
         
-        <div className="grid grid-cols-2 gap-2 bg-white p-2.5 rounded-xl border border-stone-200 shadow-3xs shrink-0">
-          <div className="flex items-center gap-2">
-            <input type="number" min="0" value={tiempoHorasForm} onChange={(e) => setTiempoHorasForm(Math.max(0, Number(e.target.value)))} className="w-12 text-center bg-stone-50 border p-1 rounded font-mono text-xs outline-none" />
-            <span className="text-[10px] text-stone-500 font-bold uppercase">Horas</span>
+        <div className="grid grid-cols-3 gap-2 bg-white p-2.5 rounded-xl border border-stone-200 shadow-3xs shrink-0">
+          <div className="flex items-center gap-1.5">
+            <input type="number" min="0" value={tiempoHorasForm} onChange={(e) => setTiempoHorasForm(Math.max(0, Number(e.target.value)))} className="w-10 text-center bg-stone-50 border p-1 rounded font-mono text-xs outline-none" />
+            <span className="text-[8px] text-stone-500 font-bold uppercase">Horas</span>
           </div>
-          <div className="flex items-center gap-2 border-l pl-3 border-stone-100">
-            <input type="number" min="0" max="59" value={tiempoMinutosForm} onChange={(e) => setTiempoMinutosForm(Math.max(0, Math.min(59, Number(e.target.value))))} className="w-12 text-center bg-stone-50 border p-1 rounded font-mono text-xs outline-none" />
-            <span className="text-[10px] text-stone-500 font-bold uppercase">Mins</span>
+          <div className="flex items-center gap-1.5 border-l pl-2 border-stone-100">
+            <input type="number" min="0" max="59" value={tiempoMinutosForm} onChange={(e) => setTiempoMinutosForm(Math.max(0, Math.min(59, Number(e.target.value))))} className="w-10 text-center bg-stone-50 border p-1 rounded font-mono text-xs outline-none" />
+            <span className="text-[8px] text-stone-500 font-bold uppercase">Mins</span>
+          </div>
+          <div className="flex items-center gap-1.5 border-l pl-2 border-stone-100">
+            <input type="number" min="1" max="50" value={porcionesForm} onChange={(e) => setPorcionesForm(Math.max(1, Number(e.target.value)))} className="w-10 text-center bg-amber-50/50 border border-amber-200 p-1 rounded font-mono text-xs text-amber-900 font-bold outline-none" />
+            <span className="text-[8px] text-amber-700 font-bold uppercase">Porciones</span>
           </div>
         </div>
 
