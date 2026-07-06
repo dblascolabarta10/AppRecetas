@@ -26,7 +26,6 @@ export default function PantallaPrincipalRecetas() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [comentarios, setComentarios] = useState<ComentarioFamiliar[]>([]);
   
-  // AQUÍ ESTABA LA TRAMPA: Esto empieza en TRUE
   const [loading, setLoading] = useState<boolean>(true);
   const [currentFamiliarId, setCurrentFamiliarId] = useState<string>('');
   
@@ -65,7 +64,6 @@ export default function PantallaPrincipalRecetas() {
   const [tituloForm, setTituloForm] = useState<string>('');
   const [descripcionForm, setDescripcionForm] = useState<string>('');
   
-  // ESTADO DE INGREDIENTES EN FORMATO OBJETO
   const [ingredientesListForm, setIngredientesListForm] = useState<any[]>([{ cantidad: '', unidad_medida: 'g', nombre: '' }]);
   const [pasosListForm, setPasosListForm] = useState<string[]>(['']);
   const [tiempoHorasForm, setTiempoHorasForm] = useState<number>(0);
@@ -84,6 +82,24 @@ export default function PantallaPrincipalRecetas() {
     categorias.forEach(c => { obj[c.id] = c.nombre; });
     return obj;
   }, [categorias]);
+
+  // Limpia los valores del formulario al guardar o cancelar
+  const resetFormulario = () => {
+    setTituloForm('');
+    setDescripcionForm('');
+    setIngredientesListForm([{ cantidad: '', unidad_medida: 'g', nombre: '' }]);
+    setPasosListForm(['']);
+    setTiempoHorasForm(0);
+    setTiempoMinutosForm(30);
+    setPorcionesForm(4);
+    setDificultadForm(3);
+    setCategoriasFormMúltiples([]);
+    setImagenPreview(null);
+    setImagenFile(null);
+    setSecretoForm('');
+    setEsPrivadaForm(false);
+    setArchivosMultimedia([]);
+  };
 
   useEffect(() => {
     localStorage.setItem('recetas_guardadas_familia', JSON.stringify(savedRecetasIds));
@@ -106,13 +122,11 @@ export default function PantallaPrincipalRecetas() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 🔥 ESTE ES EL BLOQUE QUE ME COMÍ Y QUE CONGELABA LA APP 🔥
   useEffect(() => {
     if (session?.user) {
       fetchData();
     }
   }, [session, activeTab]);
-  // -----------------------------------------------------------
 
   const handleResetFilters = () => {
     setSelectedCategories([]);
@@ -127,7 +141,7 @@ export default function PantallaPrincipalRecetas() {
 
   const fetchData = async () => {
     if (!session?.user) return;
-    setLoading(true); // Se ponía en true, pero como no se llamaba, nunca acababa
+    setLoading(true); 
     try {
       const { data: dbCats } = await supabase.from('categorias').select('id, nombre');
       setCategorias(dbCats || []);
@@ -143,7 +157,7 @@ export default function PantallaPrincipalRecetas() {
       const { data: recs } = await supabase
         .from('recetas')
         .select(`
-          id, titulo, descripcion, instrucciones, tiempo_preparacion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media, porciones,
+          id, titulo, descripcion, instrucciones, tiempo_preparacion, tiempo_coccion, fecha_creacion, imagen_url, dificultad, categoria_id, secreto_familiar, familiar_id, es_privada, valoracion_media, porciones,
           familiares ( nombre ),
           receta_ingredientes ( cantidad, unidad_medida, es_opcional, ingredientes ( nombre ) ),
           comentarios_valoraciones ( id )
@@ -175,7 +189,7 @@ export default function PantallaPrincipalRecetas() {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false); // ¡Aquí es donde la rueda por fin para!
+      setLoading(false); 
     }
   };
 
@@ -285,90 +299,141 @@ export default function PantallaPrincipalRecetas() {
   };
 
   const handleGuardarReceta = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!currentFamiliarId) {
-    alert("Error de sesión: familiar no detectado.");
-    return;
-  }
-  
-  const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '' && String(i.cantidad).trim() !== '');
-  const pasosFiltrados = pasosListForm.filter(p => p.trim() !== '');
-
-  if (!tituloForm.trim() || ingFiltrados.length === 0 || pasosFiltrados.length === 0) {
-    alert('Rellena los campos obligatorios.');
-    return;
-  }
-
-  setIsSaving(true);
-  try {
-    const totalMinutos = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
-    const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
-    const ingredientesString = ingFiltrados.map(i => `- ${i.cantidad} ${i.unidad_medida} ${i.nombre}`).join('\n');
-    const instrucciones = `[CATEGORIAS]\n${categoriasFormMúltiples.join(',')}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
-
-    // 1. Guardar o Actualizar Receta
-    let idReceta;
-    if (currentScreen === 'edit' && selectedReceta) {
-      await supabase.from('recetas').update({
-        titulo: tituloForm.trim(),
-        instrucciones,
-        tiempo_preparacion: totalMinutos,
-        dificultad: Number(dificultadForm),
-        categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
-      }).eq('id', selectedReceta.id);
-      idReceta = selectedReceta.id;
-    } else {
-      const { data: nueva, error: errReceta } = await supabase.from('recetas').insert([{
-        titulo: tituloForm.trim(),
-        instrucciones,
-        tiempo_preparacion: totalMinutos,
-        familiar_id: currentFamiliarId,
-        categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id,
-        dificultad: Number(dificultadForm)
-      }]).select().single();
-      if (errReceta) throw errReceta;
-      idReceta = nueva.id;
+    e.preventDefault();
+    if (!currentFamiliarId) {
+      alert("Error de sesión: familiar no detectado.");
+      return;
     }
+    
+    const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '' && String(i.cantidad).trim() !== '');
+    const pasosFiltrados = pasosListForm.filter(p => p.trim() !== '');
 
-    // 2. Preparar ingredientes para la función RPC
-    const listaIngredientesParaRPC = [];
-    for (const ing of ingFiltrados) {
-      const { data: ingData } = await supabase
-        .from('ingredientes')
-        .upsert({ nombre: ing.nombre.trim().toLowerCase() }, { onConflict: 'nombre' })
-        .select('id')
-        .single();
+    if (!tituloForm.trim() || ingFiltrados.length === 0 || pasosFiltrados.length === 0) {
+      alert('Rellena los campos obligatorios antes de guardar.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const totalMinutos = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
+      const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
+      const ingredientesString = ingFiltrados.map(i => `- ${i.cantidad} ${i.unidad_medida} ${i.nombre}`).join('\n');
+      const instrucciones = `[CATEGORIAS]\n${categoriasFormMúltiples.join(',')}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
+
+      let urlPortadaDefinitiva = imagenPreview; 
+
+      if (imagenFile) {
+        const extension = imagenFile.name.split('.').pop();
+        const nombreArchivo = `${Date.now()}_portada.${extension}`;
+        const rutaAlmacenamiento = `portadas/${nombreArchivo}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('multimedia-recetas')
+          .upload(rutaAlmacenamiento, imagenFile);
+
+        if (uploadError) throw new Error(`Error al subir la portada: ${uploadError.message}`);
+
+        const { data: urlData } = supabase.storage
+          .from('multimedia-recetas')
+          .getPublicUrl(rutaAlmacenamiento);
+
+        urlPortadaDefinitiva = urlData.publicUrl;
+      }
+
+      let idReceta;
+
+      if (currentScreen === 'edit' && selectedReceta) {
+        const { error: errUpdate } = await supabase.from('recetas').update({
+          titulo: tituloForm.trim(),
+          descripcion: descripcionForm.trim() || null, 
+          instrucciones,
+          tiempo_preparacion: totalMinutos,
+          tiempo_coccion: 0, 
+          porciones: Number(porcionesForm),
+          imagen_url: urlPortadaDefinitiva, 
+          dificultad: Number(dificultadForm),
+          secreto_familiar: secretoForm.trim() || null,
+          es_privada: esPrivadaForm,
+          categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
+        }).eq('id', selectedReceta.id);
+        
+        if (errUpdate) throw errUpdate;
+        idReceta = selectedReceta.id;
+      } else {
+        const { data: nueva, error: errReceta } = await supabase.from('recetas').insert([{
+          titulo: tituloForm.trim(),
+          descripcion: descripcionForm.trim() || null, 
+          instrucciones,
+          tiempo_preparacion: totalMinutos,
+          tiempo_coccion: 0, 
+          porciones: Number(porcionesForm),
+          imagen_url: urlPortadaDefinitiva || null, 
+          familiar_id: currentFamiliarId,
+          categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id,
+          dificultad: Number(dificultadForm),
+          secreto_familiar: secretoForm.trim() || null,
+          es_privada: esPrivadaForm
+        }]).select().single();
+        
+        if (errReceta) throw errReceta;
+        idReceta = nueva.id;
+      }
+
+      const { error: deleteErr } = await supabase
+        .from('receta_ingredientes')
+        .delete()
+        .eq('receta_id', idReceta);
+        
+      if (deleteErr) throw deleteErr;
+
+      for (const ing of ingFiltrados) {
+        const { data: ingData, error: ingErr } = await supabase
+          .from('ingredientes')
+          .upsert({ nombre: ing.nombre.trim().toLowerCase() }, { onConflict: 'nombre' })
+          .select('id')
+          .single();
+        
+        if (ingErr) throw ingErr;
+
+        const { error: insertBridgeErr } = await supabase
+          .from('receta_ingredientes')
+          .insert({
+            receta_id: idReceta,
+            ingrediente_id: ingData.id,
+            cantidad: Number(ing.cantidad),
+            unidad_medida: ing.unidad_medida,
+            es_opcional: false
+          });
+          
+        if (insertBridgeErr) throw insertBridgeErr;
+      }
+
+      if (archivosMultimedia.length > 0 && idReceta) {
+        await subirMultimediaReceta(idReceta, archivosMultimedia);
+      }
+
+      setSuccessToast(currentScreen === 'edit' ? 'Receta actualizada con éxito' : 'Receta guardada con éxito');
+      await fetchData();
+      resetFormulario();
+      setSelectedReceta(null);
+      setCurrentScreen('list');
+      setTimeout(() => setSuccessToast(null), 3000);
       
-      listaIngredientesParaRPC.push({
-        ingrediente_id: ingData.id,
-        cantidad: Number(ing.cantidad),
-        unidad_medida: ing.unidad_medida
-      });
+    } catch (err: any) {
+      alert('Error al guardar: ' + err.message);
+    } finally {
+      setIsSaving(false);
     }
-
-    // 3. Llamar a la función RPC (Transacción atómica)
-    const { error: rpcError } = await supabase
-      .rpc('actualizar_ingredientes_receta', {
-        p_receta_id: idReceta,
-        p_ingredientes: listaIngredientesParaRPC
-      });
-    
-    if (rpcError) throw rpcError;
-
-    setSuccessToast('Receta guardada con éxito');
-    await fetchData();
-    resetFormulario(); // <-- LIMPIEZA AUTOMÁTICA
-    setCurrentScreen('list');
-    
-  } catch (err: any) {
-    alert('Error al guardar: ' + err.message);
-  } finally {
-    setIsSaving(false);
-  }
-};
+  };
 
   const handleAñadirComentario = async (puntuacion: number, comentario: string) => {
     if (!selectedReceta) return;
+
+    // 1. Barrera visual rápida: Comprobamos si es el autor antes de enviar nada a la base de datos
+    if (String(selectedReceta.familiar_id) === String(currentFamiliarId)) {
+      alert("No puedes valorar ni comentar tus propias recetas.");
+      return;
+    }
+
     try {
       const { error } = await supabase.from('comentarios_valoraciones').insert([
         {
@@ -378,7 +443,20 @@ export default function PantallaPrincipalRecetas() {
           comentario: comentario.trim() || null
         }
       ]);
-      if (error) throw error;
+
+      if (error) {
+        // 2. Capturamos el error de "Restricción Única" (Código 23505 en PostgreSQL)
+        if (error.code === '23505') {
+          throw new Error("Ya has dejado una valoración en esta receta. Solo se permite una por persona.");
+        }
+        // 3. Capturamos el error de "Política RLS violada" (por si acaso se saltan la barrera 1)
+        if (error.code === '42501') {
+          throw new Error("Permiso denegado: No puedes comentar esta receta.");
+        }
+        // Cualquier otro error
+        throw error;
+      }
+
       setSuccessToast('Comentario añadido');
       await fetchComentariosReceta(String(selectedReceta.id));
       await fetchData(); 
@@ -386,7 +464,7 @@ export default function PantallaPrincipalRecetas() {
     } catch (err: any) {
       alert(err.message);
     }
-  };
+};
 
   const recetasFiltradas = useMemo(() => {
     let resultado = recetas.filter(receta => {
@@ -483,7 +561,7 @@ export default function PantallaPrincipalRecetas() {
                         fetchComentariosReceta(String(r.id));
                         fetchMultimediaReceta(String(r.id)); 
                       }}
-                      onOpenFilters={() => setIsFilterPanelOpen(true)} onGoToCreate={() => setCurrentScreen('create')}
+                      onOpenFilters={() => setIsFilterPanelOpen(true)} onGoToCreate={() => { resetFormulario(); setCurrentScreen('create'); }}
                     />
 
                     <div className="absolute bottom-0 inset-x-0 h-14 bg-amber-600 text-amber-100 flex items-center justify-around z-20 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] px-2">
@@ -525,7 +603,7 @@ export default function PantallaPrincipalRecetas() {
 
                 {currentScreen === 'create' && (
                   <VistaCrear
-                    onBack={() => setCurrentScreen('list')} onSubmit={handleGuardarReceta}
+                    onBack={() => { resetFormulario(); setCurrentScreen('list'); }} onSubmit={handleGuardarReceta}
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
                     tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
@@ -547,7 +625,7 @@ export default function PantallaPrincipalRecetas() {
                 {currentScreen === 'edit' && (
                   <VistaCrear
                     isEditing={true}
-                    onBack={() => setCurrentScreen('detail')} onSubmit={handleGuardarReceta}
+                    onBack={() => { resetFormulario(); setCurrentScreen('detail'); }} onSubmit={handleGuardarReceta}
                     tituloForm={tituloForm} setTituloForm={setTituloForm} descripcionForm={descripcionForm} setDescripcionForm={setDescripcionForm}
                     esPrivadaForm={esPrivadaForm} setEsPrivadaForm={setEsPrivadaForm} secretoForm={secretoForm} setSecretoForm={setSecretoForm}
                     tiempoHorasForm={tiempoHorasForm} setTiempoHorasForm={setTiempoHorasForm} tiempoMinutosForm={tiempoMinutosForm} setTiempoMinutosForm={setTiempoMinutosForm}
@@ -592,20 +670,4 @@ export default function PantallaPrincipalRecetas() {
       </div>
     </div>
   );
-  const resetFormulario = () => {
-    setTituloForm('');
-    setDescripcionForm('');
-    setIngredientesListForm([{ cantidad: '', unidad_medida: 'g', nombre: '' }]);
-    setPasosListForm(['']);
-    setTiempoHorasForm(0);
-    setTiempoMinutosForm(30);
-    setPorcionesForm(4);
-    setDificultadForm(3);
-    setCategoriasFormMúltiples([]);
-    setImagenPreview(null);
-    setImagenFile(null);
-    setSecretoForm('');
-    setEsPrivadaForm(false);
-    setArchivosMultimedia([]);
-  };
 }
