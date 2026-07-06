@@ -285,130 +285,81 @@ export default function PantallaPrincipalRecetas() {
   };
 
   const handleGuardarReceta = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '' && String(i.cantidad).trim() !== '');
-    const pasosFiltrados = pasosListForm.filter(p => p.trim() !== '');
+  e.preventDefault();
+  if (!currentFamiliarId) {
+    alert("Error de sesión: familiar no detectado.");
+    return;
+  }
+  
+  const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '');
+  const pasosFiltrados = pasosListForm.filter(p => p.trim() !== '');
 
-    if (!tituloForm.trim() || ingFiltrados.length === 0 || pasosFiltrados.length === 0) {
-      alert('Rellena los campos obligatorios antes de guardar.');
-      return;
+  if (!tituloForm.trim() || ingFiltrados.length === 0 || pasosFiltrados.length === 0) {
+    alert('Rellena los campos obligatorios.');
+    return;
+  }
+
+  setIsSaving(true);
+  try {
+    const totalMinutos = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
+    const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
+    const ingredientesString = ingFiltrados.map(i => `- ${i.cantidad} ${i.unidad_medida} ${i.nombre}`).join('\n');
+    const instrucciones = `[CATEGORIAS]\n${categoriasFormMúltiples.join(',')}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
+
+    // 1. Guardar o Actualizar Receta
+    let idReceta;
+    if (currentScreen === 'edit' && selectedReceta) {
+      await supabase.from('recetas').update({
+        titulo: tituloForm.trim(),
+        instrucciones,
+        tiempo_preparacion: totalMinutos,
+        dificultad: Number(dificultadForm),
+        categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
+      }).eq('id', selectedReceta.id);
+      idReceta = selectedReceta.id;
+    } else {
+      const { data: nueva, error: errReceta } = await supabase.from('recetas').insert([{
+        titulo: tituloForm.trim(),
+        instrucciones,
+        tiempo_preparacion: totalMinutos,
+        familiar_id: currentFamiliarId,
+        categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id,
+        dificultad: Number(dificultadForm)
+      }]).select().single();
+      if (errReceta) throw errReceta;
+      idReceta = nueva.id;
     }
-    setIsSaving(true);
-    try {
-      const totalMinutosCalculados = (Number(tiempoHorasForm) * 60) + Number(tiempoMinutosForm);
-      const pasosString = pasosFiltrados.map((p, idx) => `${idx + 1}. ${p.trim()}`).join('\n');
-      const categoriasString = categoriasFormMúltiples.join(',');
-      
-      // Creamos un string de fallback para búsquedas
-      const ingredientesString = ingFiltrados.map(i => `- ${i.cantidad} ${i.unidad_medida} ${i.nombre}`).join('\n');
-      const instruccionesEmpaquetadas = `[CATEGORIAS]\n${categoriasString}\n[INGREDIENTES]\n${ingredientesString}\n[PASOS]\n${pasosString}`;
 
-      let urlPortadaDefinitiva = imagenPreview; 
+    // 2. Gestionar ingredientes (La parte que daba error)
+    // Borramos solo los ingredientes de esta receta antes de volver a insertar
+    await supabase.from('receta_ingredientes').delete().eq('receta_id', idReceta);
 
-      if (imagenFile) {
-        const extension = imagenFile.name.split('.').pop();
-        const nombreArchivo = `${Date.now()}_portada.${extension}`;
-        const rutaAlmacenamiento = `portadas/${nombreArchivo}`;
+    for (const ing of ingFiltrados) {
+      // Upsert ingrediente global (asegura que exista)
+      const { data: ingData } = await supabase
+        .from('ingredientes')
+        .upsert({ nombre: ing.nombre.trim().toLowerCase() }, { onConflict: 'nombre' })
+        .select('id')
+        .single();
 
-        const { error: uploadError } = await supabase.storage
-          .from('multimedia-recetas')
-          .upload(rutaAlmacenamiento, imagenFile);
-
-        if (uploadError) throw new Error(`Error al subir la portada: ${uploadError.message}`);
-
-        const { data: urlData } = supabase.storage
-          .from('multimedia-recetas')
-          .getPublicUrl(rutaAlmacenamiento);
-
-        urlPortadaDefinitiva = urlData.publicUrl;
-      }
-
-      let respuestaQuery;
-
-      if (currentScreen === 'edit' && selectedReceta) {
-        respuestaQuery = await supabase.from('recetas').update({
-          titulo: tituloForm.trim(),
-          descripcion: descripcionForm.trim() || null, 
-          instrucciones: instruccionesEmpaquetadas,
-          tiempo_preparacion: totalMinutosCalculados,
-          porciones: Number(porcionesForm),
-          imagen_url: urlPortadaDefinitiva, 
-          dificultad: Number(dificultadForm),
-          secreto_familiar: secretoForm.trim() || null,
-          es_privada: esPrivadaForm,
-          categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
-        }).eq('id', selectedReceta.id).select().single();
-      } else {
-        respuestaQuery = await supabase.from('recetas').insert([
-          {
-            titulo: tituloForm.trim(),
-            descripcion: descripcionForm.trim() || null, 
-            instrucciones: instruccionesEmpaquetadas,
-            tiempo_preparacion: totalMinutosCalculados,
-            tiempo_coccion: 0,
-            porciones: Number(porcionesForm),
-            imagen_url: urlPortadaDefinitiva || null, 
-            dificultad: Number(dificultadForm),
-            secreto_familiar: secretoForm.trim() || null,
-            es_privada: esPrivadaForm,
-            familiar_id: currentFamiliarId,
-            categoria_id: categoriasFormMúltiples[0] || categorias[0]?.id
-          }
-        ]).select().single();
-      }
-
-      const { data: nuevaReceta, error } = respuestaQuery;
-      if (error) throw error;
-
-      // GUARDADO RELACIONAL EN LA BASE DE DATOS
-      if (currentScreen === 'edit') {
-        await supabase.from('receta_ingredientes').delete().eq('receta_id', nuevaReceta.id);
-      }
-
-      const promesasIngredientes = ingFiltrados.map(async (ing) => {
-        const { data: ingData, error: ingErr } = await supabase
-          .from('ingredientes')
-          .upsert({ nombre: ing.nombre.trim().toLowerCase() }, { onConflict: 'nombre' })
-          .select()
-          .single();
-
-        if (ingErr) throw ingErr;
-
-        return {
-          receta_id: nuevaReceta.id,
-          ingrediente_id: ingData.id,
-          cantidad: Number(ing.cantidad),
-          unidad_medida: ing.unidad_medida.trim(),
-          es_opcional: false
-        };
+      // Insertar relación
+      await supabase.from('receta_ingredientes').insert({
+        receta_id: idReceta,
+        ingrediente_id: ingData.id,
+        cantidad: Number(ing.cantidad),
+        unidad_medida: ing.unidad_medida
       });
-
-      const filasPuente = await Promise.all(promesasIngredientes);
-      const { error: bridgeErr } = await supabase.from('receta_ingredientes').insert(filasPuente);
-      if (bridgeErr) throw bridgeErr;
-
-      if (archivosMultimedia.length > 0 && nuevaReceta) {
-        await subirMultimediaReceta(nuevaReceta.id, archivosMultimedia);
-      }
-
-      setSuccessToast(currentScreen === 'edit' ? 'Receta actualizada con éxito' : 'Receta guardada con éxito');
-      await fetchData();
-
-      setTituloForm(''); setDescripcionForm(''); setIngredientesListForm([{ cantidad: '', unidad_medida: 'g', nombre: '' }]); setPasosListForm(['']);
-      setCategoriasFormMúltiples([]); setImagenPreview(null); setTiempoHorasForm(0); setTiempoMinutosForm(30);
-      setPorcionesForm(4);
-      setSecretoForm(''); setEsPrivadaForm(false);
-      setArchivosMultimedia([]); 
-      setImagenFile(null);
-      setSelectedReceta(null);
-      setCurrentScreen('list');
-      setTimeout(() => setSuccessToast(null), 3000);
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setIsSaving(false);
     }
-  };
+
+    setSuccessToast('Receta guardada con éxito');
+    await fetchData();
+    setCurrentScreen('list');
+  } catch (err: any) {
+    alert('Error al guardar: ' + err.message);
+  } finally {
+    setIsSaving(false);
+  }
+};
 
   const handleAñadirComentario = async (puntuacion: number, comentario: string) => {
     if (!selectedReceta) return;
