@@ -17,8 +17,8 @@ interface Props {
   categorias: Categoria[];
   categoriasFormMúltiples: string[];
   onToggleFormCategory: (id: string) => void;
-  ingredientesListForm: string[];
-  handleIngredientChange: (i: number, s: string) => void;
+  ingredientesListForm: any[];
+  handleIngredientChange: (i: number, key: string, s: string) => void;
   addIngredientField: () => void;
   pasosListForm: string[];
   handlePasoChange: (i: number, s: string) => void;
@@ -117,12 +117,25 @@ export default function VistaCrear({
 
         <SelectorMultimedia archivos={archivosMultimedia} setArchivos={setArchivosMultimedia} />
 
-        <div className="space-y-1 shrink-0">
+        <div className="space-y-1.5 shrink-0">
           <label className="text-[9px] font-bold uppercase text-stone-400 block">Ingredientes</label>
           {ingredientesListForm.map((ing, index) => (
-            <div key={index} className="flex items-center gap-2 w-full">
-              <span className="text-xs font-mono font-bold text-stone-400 w-3">-</span>
-              <input type="text" placeholder={`Ingrediente ${index + 1}`} value={ing} onChange={(e) => handleIngredientChange(index, e.target.value)} className="flex-1 bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none" />
+            <div key={index} className="flex items-center gap-1.5 w-full">
+              <input 
+                type="number" step="any" required placeholder="Cant." value={ing.cantidad || ''} 
+                onChange={(e) => handleIngredientChange(index, 'cantidad', e.target.value)} 
+                className="w-14 bg-white border border-stone-200 px-1.5 py-1.5 rounded-lg text-xs outline-none font-mono shadow-3xs" 
+              />
+              <input 
+                type="text" required placeholder="Unid." value={ing.unidad_medida || ''} 
+                onChange={(e) => handleIngredientChange(index, 'unidad_medida', e.target.value)} 
+                className="w-14 bg-white border border-stone-200 px-1 py-1.5 rounded-lg text-xs outline-none shadow-3xs" 
+              />
+              <input 
+                type="text" required placeholder="Nombre ingrediente" value={ing.nombre || ''} 
+                onChange={(e) => handleIngredientChange(index, 'nombre', e.target.value)} 
+                className="flex-1 bg-white border border-stone-200 px-3 py-1.5 rounded-lg text-xs outline-none shadow-3xs" 
+              />
             </div>
           ))}
           {ingredientesListForm.length < 15 && <button type="button" onClick={addIngredientField} className="w-full bg-white border border-stone-200 rounded-lg text-stone-400 flex items-center justify-center h-[32px] cursor-pointer"><Plus className="w-4 h-4 stroke-[3]" /></button>}

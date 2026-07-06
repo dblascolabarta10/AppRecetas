@@ -41,10 +41,25 @@ export default function VistaDetalle({
     pasosArray = rawInstrucciones.split('\n').map(p => p.trim()).filter(p => p.length > 0);
   }
 
-  // CONFIGURACIÓN DEL ESCALADOR DINÁMICO SOBRE TEXTO PLANO
   const porcionesBase = receta.porciones || 4;
   const [porcionesDeseadas, setPorcionesDeseadas] = useState<number>(porcionesBase);
   const factorEscala = porcionesDeseadas / porcionesBase;
+
+  // Fallback por si abres una receta antigua sin la tabla relacional, 
+  // para que también multiplique los números del texto plano
+  const obtenerTextoIngredientesEscalados = (texto: string, factor: number) => {
+    if (factor === 1) return texto;
+    return texto.split('\n').map(linea => {
+      return linea.replace(/([0-9]+[.,][0-9]|[0-9]+)/g, (match) => {
+        const numero = parseFloat(match.replace(',', '.'));
+        if (isNaN(numero)) return match;
+        const calculado = numero * factor;
+        return calculado % 1 === 0 ? String(calculado) : calculado.toFixed(1);
+      });
+    }).join('\n');
+  };
+
+  const ingredientesEscalados = obtenerTextoIngredientesEscalados(ingredientesTexto, factorEscala);
 
   const [inputRating, setInputRating] = useState<number>(5);
   const [inputComentario, setInputComentario] = useState<string>('');
@@ -58,13 +73,22 @@ export default function VistaDetalle({
       ? receta.categorias_ids.map(id => mapaCategorias[id]).filter(Boolean).join(', ')
       : '';
 
+    let ingredientesCompartir = '';
+    if (receta.receta_ingredientes && receta.receta_ingredientes.length > 0) {
+      ingredientesCompartir = receta.receta_ingredientes
+        .map((ri: any) => `- ${(Number(ri.cantidad) * factorEscala).toFixed(1)} ${ri.unidad_medida} ${ri.ingredientes?.nombre}`)
+        .join('\n');
+    } else {
+      ingredientesCompartir = ingredientesEscalados;
+    }
+
     const textoCompartir = `RECETA FAMILIAR: ${receta.titulo.toUpperCase()}\n` +
       `${receta.descripcion ? `"${receta.descripcion}"\n` : ''}\n` +
       `Autor: ${receta.autor_nombre}\n` +
-      `Porciones: ${porcionesDeseadas} (Original: ${porcionesBase})\n` +
+      `Porciones calculadas: ${porcionesDeseadas}\n` +
       `Tiempo: ${formatearMinutos(receta.tiempo_preparacion)}\n` +
       `${categoriasNombres ? `Categorias: ${categoriasNombres}\n` : ''}\n` +
-      `INGREDIENTES:\n${ingredientesTexto}\n\n` +
+      `INGREDIENTES:\n${ingredientesCompartir}\n\n` +
       `ELABORACION:\n${listadoPasos}`;
 
     try {
@@ -160,7 +184,7 @@ export default function VistaDetalle({
               <Pencil className="w-3.5 h-3.5" />
             </button>
             <button onClick={() => onBorrarReceta(String(receta.id))} className="p-1.5 bg-red-50 text-red-600 rounded-full border border-red-200 hover:bg-red-100 transition-colors focus:outline-none" title="Eliminar receta">
-              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
@@ -209,26 +233,33 @@ export default function VistaDetalle({
           </div>
         )}
 
-        {/* SELECTOR INTERACTIVO DE PORCIONES */}
-        <div className="space-y-1 w-full shrink-0">
-          <div className="flex justify-between items-center w-full pb-1">
+        <div className="space-y-1.5 w-full shrink-0">
+          <div className="flex justify-between items-center w-full">
             <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider flex items-center gap-1">
               <Utensils className="w-3 h-3 text-amber-500" /> Ingredientes
             </span>
             <div className="flex items-center gap-1.5 bg-white px-2 py-0.5 rounded-xl border border-stone-200 shadow-3xs no-print">
-              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.max(1, p - 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90"><Minus className="w-2.5 h-2.5 stroke-[2.5]" /></button>
-              <span className="text-[9px] font-mono font-black text-stone-700 px-1">{porcionesDeseadas} {porcionesDeseadas === 1 ? 'Porción' : 'Porciones'}</span>
-              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.min(50, p + 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90"><Plus className="w-2.5 h-2.5 stroke-[2.5]" /></button>
+              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.max(1, p - 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90 transition-transform"><Minus className="w-3 h-3 stroke-[2.5]" /></button>
+              <span className="text-[9px] font-mono font-black text-stone-700 px-1">{porcionesDeseadas} Raciones</span>
+              <button type="button" onClick={() => setPorcionesDeseadas(p => Math.min(50, p + 1))} className="p-0.5 bg-stone-100 rounded text-stone-600 active:scale-90 transition-transform"><Plus className="w-3 h-3 stroke-[2.5]" /></button>
             </div>
           </div>
-
+          
           <div className="bg-white p-3.5 rounded-2xl border border-stone-200 text-[10px] text-stone-800 shadow-3xs font-medium w-full whitespace-pre-wrap leading-relaxed relative">
-            {factorEscala !== 1 && (
-              <div className="absolute top-2 right-3 text-[7px] font-mono font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded-md animate-pulse">
-                Cantidades x{factorEscala.toFixed(1)}
+            {receta.receta_ingredientes && receta.receta_ingredientes.length > 0 ? (
+              <div className="space-y-1.5">
+                {receta.receta_ingredientes.map((ri: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-center border-b border-stone-50 pb-1 last:border-0 last:pb-0">
+                    <span className="capitalize">{ri.ingredientes?.nombre}</span>
+                    <span className="font-mono font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-100 text-[9px]">
+                      {Number((ri.cantidad * factorEscala).toFixed(2))} {ri.unidad_medida}
+                    </span>
+                  </div>
+                ))}
               </div>
+            ) : (
+              <div className="text-stone-500 italic">{ingredientesEscalados}</div>
             )}
-            {ingredientesTexto}
           </div>
         </div>
 
@@ -238,8 +269,8 @@ export default function VistaDetalle({
             {pasosArray.length > 0 ? (
               pasosArray.map((paso, i) => (
                 <div key={i} className="w-full bg-white p-3 rounded-xl border border-stone-200 flex gap-3 shadow-3xs items-start">
-                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                  <p className="text-[10px] text-stone-700 leading-relaxed flex-1">{paso}</p>
+                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white font-mono text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <p className="text-[10px] text-stone-700 leading-relaxed flex-1 pt-0.5">{paso}</p>
                 </div>
               ))
             ) : (
@@ -249,7 +280,7 @@ export default function VistaDetalle({
         </div>
 
         <div className="space-y-1.5 w-full shrink-0 pt-2 no-print">
-          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">An anycdotas de la Familia</span>
+          <span className="text-[9px] font-bold text-stone-400 uppercase tracking-wider block">Anécdotas de la Familia</span>
           
           {!esMia && (
             <form onSubmit={handleEnviarReseña} className="bg-amber-50/40 p-3 rounded-2xl border border-amber-200/50 flex flex-col gap-2.5 w-full shadow-3xs">
