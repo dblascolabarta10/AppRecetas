@@ -291,7 +291,7 @@ export default function PantallaPrincipalRecetas() {
     return;
   }
   
-  const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '');
+  const ingFiltrados = ingredientesListForm.filter(i => i.nombre?.trim() !== '' && String(i.cantidad).trim() !== '');
   const pasosFiltrados = pasosListForm.filter(p => p.trim() !== '');
 
   if (!tituloForm.trim() || ingFiltrados.length === 0 || pasosFiltrados.length === 0) {
@@ -330,30 +330,36 @@ export default function PantallaPrincipalRecetas() {
       idReceta = nueva.id;
     }
 
-    // 2. Gestionar ingredientes (La parte que daba error)
-    // Borramos solo los ingredientes de esta receta antes de volver a insertar
-    await supabase.from('receta_ingredientes').delete().eq('receta_id', idReceta);
-
+    // 2. Preparar ingredientes para la función RPC
+    const listaIngredientesParaRPC = [];
     for (const ing of ingFiltrados) {
-      // Upsert ingrediente global (asegura que exista)
       const { data: ingData } = await supabase
         .from('ingredientes')
         .upsert({ nombre: ing.nombre.trim().toLowerCase() }, { onConflict: 'nombre' })
         .select('id')
         .single();
-
-      // Insertar relación
-      await supabase.from('receta_ingredientes').insert({
-        receta_id: idReceta,
+      
+      listaIngredientesParaRPC.push({
         ingrediente_id: ingData.id,
         cantidad: Number(ing.cantidad),
         unidad_medida: ing.unidad_medida
       });
     }
 
+    // 3. Llamar a la función RPC (Transacción atómica)
+    const { error: rpcError } = await supabase
+      .rpc('actualizar_ingredientes_receta', {
+        p_receta_id: idReceta,
+        p_ingredientes: listaIngredientesParaRPC
+      });
+    
+    if (rpcError) throw rpcError;
+
     setSuccessToast('Receta guardada con éxito');
     await fetchData();
+    resetFormulario(); // <-- LIMPIEZA AUTOMÁTICA
     setCurrentScreen('list');
+    
   } catch (err: any) {
     alert('Error al guardar: ' + err.message);
   } finally {
@@ -586,4 +592,20 @@ export default function PantallaPrincipalRecetas() {
       </div>
     </div>
   );
+  const resetFormulario = () => {
+    setTituloForm('');
+    setDescripcionForm('');
+    setIngredientesListForm([{ cantidad: '', unidad_medida: 'g', nombre: '' }]);
+    setPasosListForm(['']);
+    setTiempoHorasForm(0);
+    setTiempoMinutosForm(30);
+    setPorcionesForm(4);
+    setDificultadForm(3);
+    setCategoriasFormMúltiples([]);
+    setImagenPreview(null);
+    setImagenFile(null);
+    setSecretoForm('');
+    setEsPrivadaForm(false);
+    setArchivosMultimedia([]);
+  };
 }
