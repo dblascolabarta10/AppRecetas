@@ -2,8 +2,8 @@ name: Keep Supabase Alive
 
 on:
   schedule:
-    # Se ejecuta automáticamente cada 3 días a las 00:00 UTC
-    - cron: '0 0 */3 * *'
+    # Se ejecuta todos los días a las 05:00 UTC (evita horas pico de GitHub Actions)
+    - cron: '0 5 * * *'
   workflow_dispatch: # Permite probarlo manualmente cuando quieras
 
 jobs:
@@ -12,6 +12,12 @@ jobs:
     steps:
       - name: Send ping request
         run: |
-          curl -s -X GET "${{ secrets.SUPABASE_URL }}" \
+          # Asegurar que la URL termine en / si no la tiene
+          BASE_URL="${{ secrets.SUPABASE_URL }}"
+          [[ "$BASE_URL" != */ ]] && BASE_URL="${BASE_URL}/"
+
+          curl -f -i -X GET "${BASE_URL}rest/v1/recetas?select=id&limit=1&nocache=$(date +%s)" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            --retry 3 \
+            --retry-delay 5
