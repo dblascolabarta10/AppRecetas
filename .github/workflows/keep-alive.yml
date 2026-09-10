@@ -12,11 +12,16 @@ jobs:
     steps:
       - name: Send ping request
         run: |
-          BASE_URL="${{ secrets.SUPABASE_URL }}"
-          [[ "$BASE_URL" != */ ]] && BASE_URL="${BASE_URL}/"
+          # 1. Limpiar la URL eliminando /rest/v1 o barras al final si ya venían en el secret
+          RAW_URL="${{ secrets.SUPABASE_URL }}"
+          CLEAN_URL="${RAW_URL%/}"
+          CLEAN_URL="${CLEAN_URL%/rest/v1}"
 
-          echo "URL objetivo: ${BASE_URL}rest/v1/recetas?select=id&limit=1"
+          # 2. Construir la URL exacta a la API
+          TARGET_URL="${CLEAN_URL}/rest/v1/recetas?select=id&limit=1"
+          echo "Petición a: ${TARGET_URL}"
 
-          curl -i -X GET "${BASE_URL}rest/v1/recetas?select=id&limit=1" \
+          # 3. Ejecutar curl
+          curl -i -X GET "${TARGET_URL}" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
