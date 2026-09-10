@@ -12,12 +12,11 @@ jobs:
     steps:
       - name: Send ping request
         run: |
-          # Asegurar que la URL termine en / si no la tiene
           BASE_URL="${{ secrets.SUPABASE_URL }}"
           [[ "$BASE_URL" != */ ]] && BASE_URL="${BASE_URL}/"
 
-          curl -f -i -X GET "${BASE_URL}rest/v1/recetas?select=id&limit=1&nocache=$(date +%s)" \
+          echo "URL objetivo: ${BASE_URL}rest/v1/recetas?select=id&limit=1"
+
+          curl -i -X GET "${BASE_URL}rest/v1/recetas?select=id&limit=1" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            --retry 3 \
-            --retry-delay 5
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
